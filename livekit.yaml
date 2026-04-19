@@ -1,0 +1,33 @@
+# LiveKit Server Configuration
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+
+redis:
+  address: redis:6379
+
+keys:
+  # API Key : Secret - .env dosyasindan okunur
+  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+
+logging:
+  level: info
+  pion_level: warn
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  max_participants: 50
+
+# Egress (kayit) icin
+egress:
+  enable_downloads: true
+  s3:
+    access_key: ${S3_ACCESS_KEY}
+    secret: ${S3_SECRET_KEY}
+    region: auto
+    endpoint: https://3e064bf36911d04c80bf690698c47981.r2.cloudflarestorage.com
+    bucket: podchat-recordings

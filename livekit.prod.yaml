@@ -1,0 +1,35 @@
+# LiveKit Server Configuration - Production
+# Note: Environment variables are passed via docker-compose
+
+port: 7880
+bind_addresses:
+  - ""
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: true
+  enable_loopback_candidate: false
+
+redis:
+  address: redis:6379
+
+# Keys are set via environment variables in docker-compose
+# LIVEKIT_KEYS environment variable format: "key: secret"
+
+logging:
+  level: info
+  pion_level: warn
+  json: true
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  max_participants: 50
+
+turn:
+  enabled: true
+  domain: ""  # Set your domain
+  tls_port: 5349
+  udp_port: 3478

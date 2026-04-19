@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: podchat-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-podchat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-podchat}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podchat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: podchat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: podchat-livekit
+    command: --config /etc/livekit.yaml
+    restart: unless-stopped
+    ports:
+      - "7880:7880"       # HTTP API
+      - "7881:7881"       # RTC TCP
+      - "50000-50100:50000-50100/udp"  # RTC UDP (daha kucuk range)
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      - redis
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+
+  # Egress worker - kayit icin gerekli
+  livekit-egress:
+    image: livekit/egress:latest
+    container_name: podchat-egress
+    restart: unless-stopped
+    environment:
+      - EGRESS_CONFIG_FILE=/etc/egress.yaml
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      - egress_tmp:/tmp
+    cap_add:
+      - SYS_ADMIN
+    depends_on:
+      - livekit
+      - redis
+
+volumes:
+  postgres_data:
+  redis_data:
+  egress_tmp:

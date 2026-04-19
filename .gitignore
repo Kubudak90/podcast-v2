@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+build/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+coverage/
+
+# Database
+*.db
+*.sqlite
+
+# Generated
+frontend/src/generated/
+backend/src/generated/
+
+# Misc
+*.tsbuildinfo
+.cache/
+
+# Deployment
+certbot/
+*.sql
+nginx/nginx.conf.bak

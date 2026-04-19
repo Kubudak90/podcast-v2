@@ -1,0 +1,153 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String   @id @default(uuid())
+  username       String   @unique
+  email          String?  @unique
+  password       String?  // bcrypt hash, null for OAuth users
+  authProvider   String   @default("email") // email, google, apple
+  authProviderId String?  // OAuth provider's user ID
+  avatarUrl      String?
+  bio            String?
+  createdAt      DateTime @default(now())
+
+  // Relations
+  hostedRooms            Room[]                     @relation("HostedRooms")
+  participants           RoomParticipant[]
+  messages               ChatMessage[]
+  followers              UserFollow[]               @relation("Following")
+  following              UserFollow[]               @relation("Followers")
+  notificationSubscriptions NotificationSubscription[]
+
+  @@unique([authProvider, authProviderId])
+  @@map("users")
+}
+
+model Room {
+  id          String    @id @default(uuid())
+  slug        String    @unique
+  title       String
+  hostId      String
+  status      String    @default("waiting") // waiting, live, ended
+  maxSpeakers Int       @default(10)
+  isPublic    Boolean   @default(true)
+  password    String?   // For private rooms
+  egressId        String?   // LiveKit egress ID for recording
+  recordingFileUrl String?   // S3 URL where recording will be stored
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  // Relations
+  host         User              @relation("HostedRooms", fields: [hostId], references: [id])
+  participants RoomParticipant[]
+  recordings   Recording[]
+  messages     ChatMessage[]
+
+  // Indexes for common queries
+  @@index([hostId])
+  @@index([status, isPublic, createdAt])
+  @@index([isPublic, status])
+  @@map("rooms")
+}
+
+model RoomParticipant {
+  id       String    @id @default(uuid())
+  roomId   String
+  userId   String
+  role     String // host, speaker, listener
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  // Indexes for common queries
+  @@index([roomId, leftAt])
+  @@index([userId, joinedAt])
+  @@index([roomId, role, leftAt])
+  @@map("room_participants")
+}
+
+model Recording {
+  id              String   @id @default(uuid())
+  roomId          String
+  fileUrl         String
+  title           String?  // Optional custom title for sharing
+  shareSlug       String?  @unique // Unique slug for public sharing
+  description     String?  // Optional description for sharing
+  isPublic        Boolean  @default(false) // Whether recording is publicly shareable
+  durationSeconds Int?
+  fileSizeBytes   BigInt?
+  format          String   @default("mp3")
+  playCount       Int      @default(0) // Track play counts
+  createdAt       DateTime @default(now())
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Indexes for common queries
+  @@index([roomId])
+  @@index([isPublic, createdAt])
+  @@map("recordings")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes for common queries
+  @@index([roomId, createdAt])
+  @@map("chat_messages")
+}
+
+model UserFollow {
+  id          String   @id @default(uuid())
+  followerId  String   // User who is following
+  followingId String   // User being followed
+  createdAt   DateTime @default(now())
+
+  // Relations
+  follower  User @relation("Followers", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  // Indexes for common queries
+  @@index([followingId])
+  @@index([followerId])
+  @@map("user_follows")
+}
+
+model NotificationSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String   @unique // Push subscription endpoint
+  p256dh    String   // Push subscription key
+  auth      String   // Push subscription auth
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes for common queries
+  @@index([userId])
+  @@map("notification_subscriptions")
+}

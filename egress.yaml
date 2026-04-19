@@ -1,0 +1,25 @@
+# Egress Worker Configuration
+api_key: ${LIVEKIT_API_KEY}
+api_secret: ${LIVEKIT_API_SECRET}
+ws_url: ws://livekit:7880
+
+redis:
+  address: redis:6379
+
+# CPU ve bellek limitleri
+cpu_cost:
+  room_composite_cpu_cost: 3
+  track_composite_cpu_cost: 2
+  track_cpu_cost: 1
+
+# S3/R2 storage
+s3:
+  access_key: ${S3_ACCESS_KEY}
+  secret: ${S3_SECRET_KEY}
+  region: auto
+  endpoint: https://3e064bf36911d04c80bf690698c47981.r2.cloudflarestorage.com
+  bucket: podchat-recordings
+  force_path_style: true
+
+logging:
+  level: info

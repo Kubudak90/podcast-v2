@@ -1,0 +1,398 @@
+openapi: 3.1.0
+info:
+  title: PodChat Backend API
+  version: 1.0.0
+  description: |
+    REST API for PodChat — live podcast platform with rooms, recordings,
+    LiveKit audio and Socket.IO realtime presence.
+servers:
+  - url: http://localhost:3001/api
+    description: Local dev
+  - url: https://livepodchat.com/api
+    description: Production
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        code: { type: string }
+        requiresPassword: { type: boolean }
+
+    User:
+      type: object
+      required: [id, username, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        email: { type: string, format: email }
+        avatarUrl: { type: string, format: uri }
+        bio: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        token: { type: string, description: JWT }
+
+    Room:
+      type: object
+      required: [id, slug, title, hostId, status, maxSpeakers, isPublic, hasPassword, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        hostId: { type: string, format: uuid }
+        status: { type: string, enum: [waiting, live, ended] }
+        maxSpeakers: { type: integer }
+        isPublic: { type: boolean }
+        hasPassword: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+
+    PublicRoom:
+      type: object
+      required: [id, slug, title, status, isPublic, hasPassword, host, participantCount, maxSpeakers, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        status: { type: string, enum: [waiting, live] }
+        isPublic: { type: boolean }
+        hasPassword: { type: boolean }
+        host:
+          type: object
+          properties:
+            id: { type: string }
+            username: { type: string }
+            avatarUrl: { type: string }
+        participantCount: { type: integer }
+        maxSpeakers: { type: integer }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time }
+
+    Participant:
+      type: object
+      required: [id, roomId, userId, username, role, isMuted, isSpeaking, joinedAt]
+      properties:
+        id: { type: string }
+        roomId: { type: string }
+        userId: { type: string }
+        username: { type: string }
+        avatarUrl: { type: string }
+        role: { type: string, enum: [host, speaker, listener] }
+        isMuted: { type: boolean }
+        isSpeaking: { type: boolean }
+        joinedAt: { type: string, format: date-time }
+
+    JoinRoomResponse:
+      type: object
+      required: [room, participant]
+      properties:
+        room: { $ref: '#/components/schemas/Room' }
+        participant:
+          type: object
+          required: [role]
+          properties:
+            role: { type: string, enum: [host, speaker, listener] }
+
+    LiveKitTokenResponse:
+      type: object
+      required: [token, url, expiresAt]
+      properties:
+        token: { type: string, description: LiveKit JWT (1h TTL) }
+        url: { type: string, description: LiveKit WebSocket URL }
+        expiresAt: { type: string, format: date-time }
+
+    Recording:
+      type: object
+      properties:
+        id: { type: string }
+        roomId: { type: string }
+        fileUrl: { type: string }
+        durationSeconds: { type: integer }
+        fileSizeBytes: { type: integer }
+        format: { type: string }
+        createdAt: { type: string, format: date-time }
+        title: { type: string }
+        description: { type: string }
+        shareSlug: { type: string }
+        isPublic: { type: boolean }
+        playCount: { type: integer }
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but not allowed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      security: []
+      summary: Create a new account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Login with email + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current authenticated user
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /rooms:
+    get:
+      tags: [rooms]
+      summary: List public rooms (waiting + live)
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms: { type: array, items: { $ref: '#/components/schemas/PublicRoom' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+    post:
+      tags: [rooms]
+      summary: Create a room
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 100 }
+                isPublic: { type: boolean, default: true }
+                password: { type: string, description: Optional — makes the room password-protected }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Room' } } } }
+
+  /rooms/{slug}:
+    get:
+      tags: [rooms]
+      summary: Get room by slug
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Room' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{slug}/join:
+    post:
+      tags: [rooms]
+      summary: Join a room
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string, description: Required only if room hasPassword=true }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/JoinRoomResponse' } } } }
+        '401':
+          description: Password required or wrong password
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                message: 'Password required'
+                requiresPassword: true
+
+  /rooms/{slug}/leave:
+    post:
+      tags: [rooms]
+      summary: Leave a room
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      responses:
+        '204': { description: No content }
+
+  /rooms/{slug}/start:
+    post:
+      tags: [rooms]
+      summary: Start the live broadcast (host only)
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /rooms/{slug}/end:
+    post:
+      tags: [rooms]
+      summary: End the broadcast (host only)
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /rooms/{slug}/role:
+    patch:
+      tags: [rooms]
+      summary: Update participant role (host only)
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role]
+              properties:
+                userId: { type: string }
+                role: { type: string, enum: [speaker, listener] }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Participant' } } } }
+
+  /livekit/token:
+    post:
+      tags: [livekit]
+      summary: Get a LiveKit access token (also used for refresh)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roomSlug]
+              properties:
+                roomSlug: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/LiveKitTokenResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /rooms/{slug}/recordings:
+    get:
+      tags: [recordings]
+      summary: Recordings for a room
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Recording' }
+
+  /recordings/{id}/download:
+    get:
+      tags: [recordings]
+      summary: Get a presigned download URL for a recording
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string, format: uri }
+                  expiresAt: { type: string, format: date-time }
+
+  /health:
+    get:
+      tags: [system]
+      security: []
+      summary: Liveness probe
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
