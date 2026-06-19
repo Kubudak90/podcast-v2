@@ -21,6 +21,27 @@ interface AuthenticatedSocket extends Socket {
 
 let io: Server | null = null;
 
+async function findActiveParticipant(roomSlug: string, userId: string) {
+  const room = await prisma.room.findUnique({
+    where: { slug: roomSlug },
+    select: {
+      id: true,
+      slug: true,
+      status: true,
+      participants: {
+        where: { userId, leftAt: null },
+        include: {
+          user: {
+            select: { id: true, username: true, avatarUrl: true },
+          },
+        },
+      },
+    },
+  });
+
+  return { room, participant: room?.participants[0] };
+}
+
 export function initializeSocket(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
     cors: {
@@ -62,9 +83,18 @@ export function initializeSocket(httpServer: HttpServer): Server {
     logger.debug({ userId: socket.userId, username: socket.username }, 'User connected via socket');
 
     // Join a room channel
-    socket.on('room:join', (roomSlug: string) => {
-      socket.join(`room:${roomSlug}`);
-      logger.debug({ username: socket.username, roomSlug }, 'User joined room channel');
+    socket.on('room:join', async (roomSlug: string) => {
+      if (!socket.userId || typeof roomSlug !== 'string' || !roomSlug) return;
+
+      try {
+        const { room, participant } = await findActiveParticipant(roomSlug, socket.userId);
+        if (!room || room.status === 'ended' || !participant) return;
+
+        socket.join(`room:${roomSlug}`);
+        logger.debug({ username: socket.username, roomSlug }, 'User joined room channel');
+      } catch (error) {
+        logger.error({ error, userId: socket.userId, roomSlug }, 'Failed to join room channel');
+      }
     });
 
     // Leave a room channel
@@ -80,12 +110,9 @@ export function initializeSocket(httpServer: HttpServer): Server {
       if (data.content.length > 500) return; // Max 500 chars
 
       try {
-        // Get room
-        const room = await prisma.room.findUnique({
-          where: { slug: data.roomSlug },
-        });
+        const { room, participant } = await findActiveParticipant(data.roomSlug, socket.userId);
 
-        if (!room || room.status === 'ended') return;
+        if (!room || room.status === 'ended' || !participant) return;
 
         // Save message to database
         const message = await prisma.chatMessage.create({
@@ -111,6 +138,76 @@ export function initializeSocket(httpServer: HttpServer): Server {
       }
     });
 
+    socket.on('speaker:request', async (data: { roomSlug: string }) => {
+      if (!socket.userId || !socket.username || !data.roomSlug) return;
+
+      try {
+        const { room, participant } = await findActiveParticipant(data.roomSlug, socket.userId);
+
+        if (!room || room.status === 'ended' || !participant || participant.role !== 'listener') return;
+
+        await prisma.speakerRequest.upsert({
+          where: {
+            roomId_userId: {
+              roomId: room.id,
+              userId: socket.userId,
+            },
+          },
+          update: {
+            status: 'pending',
+            requestedAt: new Date(),
+            resolvedAt: null,
+          },
+          create: {
+            roomId: room.id,
+            userId: socket.userId,
+          },
+        });
+
+        emitSpeakerRequested(room.slug, {
+          userId: socket.userId,
+          username: participant.user.username,
+          avatarUrl: participant.user.avatarUrl,
+          requestedAt: new Date().toISOString(),
+        });
+
+        logger.debug({ username: socket.username, roomSlug: data.roomSlug }, 'Speaker request sent');
+      } catch (error) {
+        logger.error({ error, userId: socket.userId }, 'Failed to send speaker request');
+      }
+    });
+
+    socket.on('speaker:reject', async (data: { roomSlug: string; userId: string }) => {
+      if (!socket.userId || !data.roomSlug || !data.userId) return;
+
+      try {
+        const room = await prisma.room.findUnique({
+          where: { slug: data.roomSlug },
+          select: { id: true, hostId: true, slug: true, status: true },
+        });
+
+        if (!room || room.status === 'ended' || room.hostId !== socket.userId) return;
+
+        await prisma.speakerRequest.updateMany({
+          where: {
+            roomId: room.id,
+            userId: data.userId,
+            status: 'pending',
+          },
+          data: {
+            status: 'rejected',
+            resolvedAt: new Date(),
+          },
+        });
+
+        emitSpeakerRequestResolved(room.slug, data.userId, false);
+
+        logger.debug({ username: socket.username, roomSlug: data.roomSlug, targetUserId: data.userId }, 'Speaker request rejected');
+      } catch (error) {
+        logger.error({ error, userId: socket.userId }, 'Failed to reject speaker request');
+      }
+    });
+
     socket.on('disconnect', () => {
       logger.debug({ username: socket.username }, 'User disconnected from socket');
     });
@@ -128,7 +225,15 @@ export function getIO(): Server {
 
 // Event emitters for room updates
 export function emitRoomUpdate(roomSlug: string, data: {
-  type: 'status_changed' | 'participant_joined' | 'participant_left' | 'participant_role_changed' | 'recording_started' | 'recording_stopped';
+  type:
+    | 'status_changed'
+    | 'participant_joined'
+    | 'participant_left'
+    | 'participant_role_changed'
+    | 'recording_started'
+    | 'recording_stopped'
+    | 'speaker_requested'
+    | 'speaker_request_resolved';
   payload: Record<string, unknown>;
 }) {
   if (!io) return;
@@ -165,5 +270,24 @@ export function emitParticipantRoleChanged(roomSlug: string, userId: string, rol
   emitRoomUpdate(roomSlug, {
     type: 'participant_role_changed',
     payload: { userId, role },
+  });
+}
+
+export function emitSpeakerRequested(roomSlug: string, request: {
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  requestedAt: string;
+}) {
+  emitRoomUpdate(roomSlug, {
+    type: 'speaker_requested',
+    payload: request,
+  });
+}
+
+export function emitSpeakerRequestResolved(roomSlug: string, userId: string, accepted: boolean) {
+  emitRoomUpdate(roomSlug, {
+    type: 'speaker_request_resolved',
+    payload: { userId, accepted },
   });
 }

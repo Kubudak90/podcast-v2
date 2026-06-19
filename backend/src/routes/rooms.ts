@@ -157,6 +157,23 @@ router.get('/:slug', async (req: AuthRequest<{ slug: string }>, res: Response) =
       return res.status(404).json({ message: 'Room not found' });
     }
 
+    const activeParticipant = await prisma.roomParticipant.findFirst({
+      where: {
+        roomId: room.id,
+        userId: req.userId!,
+        leftAt: null,
+      },
+      select: { id: true },
+    });
+
+    if ((room.password || !room.isPublic) && room.hostId !== req.userId && !activeParticipant) {
+      return res.status(403).json({
+        message: 'Join this room before viewing details',
+        requiresPassword: !!room.password,
+        hasPassword: !!room.password,
+      });
+    }
+
     const host = await prisma.user.findUnique({
       where: { id: room.hostId },
       select: { id: true, username: true, avatarUrl: true },
@@ -539,6 +556,55 @@ router.post('/:slug/end', async (req: AuthRequest<{ slug: string }>, res: Respon
   }
 });
 
+// GET /api/rooms/:slug/speaker-requests - Pending speaker requests (host only)
+router.get('/:slug/speaker-requests', async (req: AuthRequest<{ slug: string }>, res: Response) => {
+  try {
+    const { slug } = req.params;
+
+    const room = await prisma.room.findUnique({
+      where: { slug },
+      select: { id: true, hostId: true },
+    });
+
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    if (room.hostId !== req.userId) {
+      return res.status(403).json({ message: 'Only the host can view speaker requests' });
+    }
+
+    const requests = await prisma.speakerRequest.findMany({
+      where: {
+        roomId: room.id,
+        status: 'pending',
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: { requestedAt: 'asc' },
+    });
+
+    res.json({
+      requests: requests.map((request) => ({
+        userId: request.user.id,
+        username: request.user.username,
+        avatarUrl: request.user.avatarUrl,
+        requestedAt: request.requestedAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    logError(error as Error, { action: 'list_speaker_requests', userId: req.userId });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // PATCH /api/rooms/:slug/role - Change role
 router.patch('/:slug/role', validate(changeRoleSchema), async (req: AuthRequest<{ slug: string }>, res: Response) => {
   try {
@@ -557,13 +623,44 @@ router.patch('/:slug/role', validate(changeRoleSchema), async (req: AuthRequest<
       return res.status(403).json({ message: 'Only the host can change roles' });
     }
 
-    await prisma.roomParticipant.updateMany({
+    if (role === 'speaker') {
+      const speakerCount = await prisma.roomParticipant.count({
+        where: {
+          roomId: room.id,
+          role: { in: ['host', 'speaker'] },
+          leftAt: null,
+          userId: { not: userId },
+        },
+      });
+
+      if (speakerCount >= room.maxSpeakers) {
+        return res.status(400).json({ message: 'Maximum speaker count reached' });
+      }
+    }
+
+    const result = await prisma.roomParticipant.updateMany({
       where: {
         roomId: room.id,
         userId,
         leftAt: null,
       },
       data: { role },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: 'Active participant not found' });
+    }
+
+    await prisma.speakerRequest.updateMany({
+      where: {
+        roomId: room.id,
+        userId,
+        status: 'pending',
+      },
+      data: {
+        status: role === 'speaker' ? 'accepted' : 'rejected',
+        resolvedAt: new Date(),
+      },
     });
 
     // Emit socket event for role change

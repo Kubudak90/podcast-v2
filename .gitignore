@@ -47,4 +47,5 @@ backend/src/generated/
 # Deployment
 certbot/
 *.sql
+!backend/prisma/migrations/**/*.sql
 nginx/nginx.conf.bak

@@ -87,6 +87,17 @@ router.get('/rooms/:slug/recordings', authMiddleware, async (req: AuthRequest<{ 
       return res.status(404).json({ message: 'Room not found' });
     }
 
+    const participant = await prisma.roomParticipant.findFirst({
+      where: {
+        roomId: room.id,
+        userId: req.userId!,
+      },
+    });
+
+    if (room.hostId !== req.userId && !participant) {
+      return res.status(403).json({ message: 'You do not have permission to view these recordings' });
+    }
+
     const recordings = await prisma.recording.findMany({
       where: { roomId: room.id },
       orderBy: { createdAt: 'desc' },

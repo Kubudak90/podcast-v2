@@ -39,6 +39,8 @@ import {
   emitParticipantLeft,
   emitRoomStatusChanged,
   emitParticipantRoleChanged,
+  emitSpeakerRequested,
+  emitSpeakerRequestResolved,
 } from '../lib/socket.js';
 
 describe('Socket Event Emitters', () => {
@@ -155,6 +157,36 @@ describe('Socket Event Emitters', () => {
       expect(mockEmit).toHaveBeenCalledWith('room:update', {
         type: 'participant_role_changed',
         payload: { userId: 'user-1', role: 'speaker' },
+      });
+    });
+  });
+
+  describe('speaker request events', () => {
+    it('should emit speaker_requested event', () => {
+      emitSpeakerRequested('room-abc', {
+        userId: 'user-2',
+        username: 'listener',
+        avatarUrl: null,
+        requestedAt: '2026-04-25T09:00:00.000Z',
+      });
+
+      expect(mockEmit).toHaveBeenCalledWith('room:update', {
+        type: 'speaker_requested',
+        payload: {
+          userId: 'user-2',
+          username: 'listener',
+          avatarUrl: null,
+          requestedAt: '2026-04-25T09:00:00.000Z',
+        },
+      });
+    });
+
+    it('should emit speaker_request_resolved event', () => {
+      emitSpeakerRequestResolved('room-abc', 'user-2', false);
+
+      expect(mockEmit).toHaveBeenCalledWith('room:update', {
+        type: 'speaker_request_resolved',
+        payload: { userId: 'user-2', accepted: false },
       });
     });
   });

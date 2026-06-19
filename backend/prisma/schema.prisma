@@ -23,6 +23,7 @@ model User {
   // Relations
   hostedRooms            Room[]                     @relation("HostedRooms")
   participants           RoomParticipant[]
+  speakerRequests        SpeakerRequest[]
   messages               ChatMessage[]
   followers              UserFollow[]               @relation("Following")
   following              UserFollow[]               @relation("Followers")
@@ -50,6 +51,7 @@ model Room {
   // Relations
   host         User              @relation("HostedRooms", fields: [hostId], references: [id])
   participants RoomParticipant[]
+  speakerRequests SpeakerRequest[]
   recordings   Recording[]
   messages     ChatMessage[]
 
@@ -78,6 +80,24 @@ model RoomParticipant {
   @@index([userId, joinedAt])
   @@index([roomId, role, leftAt])
   @@map("room_participants")
+}
+
+model SpeakerRequest {
+  id          String    @id @default(uuid())
+  roomId      String
+  userId      String
+  status      String    @default("pending") // pending, accepted, rejected
+  requestedAt DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, status, requestedAt])
+  @@index([userId, status])
+  @@map("speaker_requests")
 }
 
 model Recording {

@@ -17,6 +17,9 @@ vi.mock('../lib/prisma.js', () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    roomParticipant: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -69,6 +72,9 @@ type MockedPrisma = typeof prisma & {
     findMany: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
+  };
+  roomParticipant: {
+    findFirst: ReturnType<typeof vi.fn>;
   };
 };
 

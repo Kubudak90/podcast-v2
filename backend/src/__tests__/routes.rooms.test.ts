@@ -7,6 +7,7 @@ import { generateToken } from '../middleware/auth.js';
 vi.mock('../lib/prisma.js', () => {
   const roomParticipantMock = {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -17,6 +18,10 @@ vi.mock('../lib/prisma.js', () => {
     findUnique: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
+  };
+  const speakerRequestMock = {
+    findMany: vi.fn(),
+    updateMany: vi.fn(),
   };
   const roomMock = {
     findUnique: vi.fn(),
@@ -32,9 +37,13 @@ vi.mock('../lib/prisma.js', () => {
         create: vi.fn(),
         update: vi.fn(),
       },
+      userFollow: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       room: roomMock,
       roomParticipant: roomParticipantMock,
       recording: recordingMock,
+      speakerRequest: speakerRequestMock,
       chatMessage: {
         findMany: vi.fn(),
         create: vi.fn(),
@@ -46,6 +55,7 @@ vi.mock('../lib/prisma.js', () => {
           room: roomMock,
           roomParticipant: roomParticipantMock,
           recording: recordingMock,
+          speakerRequest: speakerRequestMock,
         };
         return callback(tx);
       }),
@@ -80,8 +90,10 @@ import { prisma } from '../lib/prisma.js';
 type MockFn = ReturnType<typeof vi.fn>;
 type MockedPrisma = {
   user: { findUnique: MockFn; findFirst: MockFn; create: MockFn; update: MockFn };
+  userFollow: { findMany: MockFn };
   room: { findUnique: MockFn; create: MockFn; update: MockFn };
-  roomParticipant: { findUnique: MockFn; findMany: MockFn; create: MockFn; update: MockFn; updateMany: MockFn; count: MockFn };
+  roomParticipant: { findUnique: MockFn; findFirst: MockFn; findMany: MockFn; create: MockFn; update: MockFn; updateMany: MockFn; count: MockFn };
+  speakerRequest: { findMany: MockFn; updateMany: MockFn };
   $transaction: MockFn;
 };
 
@@ -236,6 +248,32 @@ describe('Room Routes', () => {
         .set('Authorization', `Bearer ${validToken}`);
 
       expect(response.status).toBe(404);
+    });
+
+    it('should hide private room details from non-participants', async () => {
+      const mockRoom = {
+        id: 'room-123',
+        slug: 'abc12345',
+        title: 'Private Room',
+        hostId: 'host-456',
+        status: 'waiting',
+        maxSpeakers: 10,
+        isPublic: false,
+        password: 'hashed-password',
+        createdAt: new Date(),
+        startedAt: null,
+        endedAt: null,
+      };
+
+      mockPrisma.room.findUnique.mockResolvedValue(mockRoom);
+      mockPrisma.roomParticipant.findFirst.mockResolvedValue(null);
+
+      const response = await request(app)
+        .get('/api/rooms/abc12345')
+        .set('Authorization', `Bearer ${validToken}`);
+
+      expect(response.status).toBe(403);
+      expect(response.body.requiresPassword).toBe(true);
     });
   });
 
@@ -592,6 +630,7 @@ describe('Room Routes', () => {
 
       mockPrisma.room.findUnique.mockResolvedValue(mockRoom);
       mockPrisma.roomParticipant.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.speakerRequest.updateMany.mockResolvedValue({ count: 1 });
 
       const response = await request(app)
         .patch('/api/rooms/abc12345/role')
@@ -603,6 +642,17 @@ describe('Room Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.message).toBe('Role updated successfully');
+      expect(mockPrisma.speakerRequest.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            roomId: 'room-123',
+            status: 'pending',
+          }),
+          data: expect.objectContaining({
+            status: 'rejected',
+          }),
+        })
+      );
     });
 
     it('should reject invalid role', async () => {
@@ -627,6 +677,48 @@ describe('Room Routes', () => {
         });
 
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe('GET /api/rooms/:slug/speaker-requests', () => {
+    it('should allow host to list pending speaker requests', async () => {
+      const mockRoom = {
+        id: 'room-123',
+        hostId: 'user-123',
+      };
+
+      mockPrisma.room.findUnique.mockResolvedValue(mockRoom);
+      mockPrisma.speakerRequest.findMany.mockResolvedValue([
+        {
+          user: {
+            id: 'user-2',
+            username: 'listener',
+            avatarUrl: null,
+          },
+          requestedAt: new Date('2026-04-25T09:00:00.000Z'),
+        },
+      ]);
+
+      const response = await request(app)
+        .get('/api/rooms/abc12345/speaker-requests')
+        .set('Authorization', `Bearer ${validToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.requests).toHaveLength(1);
+      expect(response.body.requests[0].username).toBe('listener');
+    });
+
+    it('should reject non-host from listing speaker requests', async () => {
+      mockPrisma.room.findUnique.mockResolvedValue({
+        id: 'room-123',
+        hostId: 'other-user',
+      });
+
+      const response = await request(app)
+        .get('/api/rooms/abc12345/speaker-requests')
+        .set('Authorization', `Bearer ${validToken}`);
+
+      expect(response.status).toBe(403);
     });
   });
 });

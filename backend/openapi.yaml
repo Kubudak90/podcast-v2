@@ -10,6 +10,42 @@ servers:
     description: Local dev
   - url: https://livepodchat.com/api
     description: Production
+x-socket-events:
+  client:
+    speaker:request:
+      description: Listener requests to become a speaker.
+      payload:
+        type: object
+        required: [roomSlug]
+        properties:
+          roomSlug: { type: string }
+    speaker:reject:
+      description: Host rejects a pending speaker request.
+      payload:
+        type: object
+        required: [roomSlug, userId]
+        properties:
+          roomSlug: { type: string }
+          userId: { type: string }
+  server:
+    room:update:
+      description: Realtime room event envelope emitted to `room:{slug}` channels.
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type:
+            type: string
+            enum:
+              - status_changed
+              - participant_joined
+              - participant_left
+              - participant_role_changed
+              - recording_started
+              - recording_stopped
+              - speaker_requested
+              - speaker_request_resolved
+          payload: { type: object }
 
 components:
   securitySchemes:
@@ -95,6 +131,23 @@ components:
         isMuted: { type: boolean }
         isSpeaking: { type: boolean }
         joinedAt: { type: string, format: date-time }
+
+    SpeakerRequest:
+      type: object
+      required: [userId, username, requestedAt]
+      properties:
+        userId: { type: string }
+        username: { type: string }
+        avatarUrl: { type: string }
+        requestedAt: { type: string, format: date-time }
+
+    SpeakerRequestsResponse:
+      type: object
+      required: [requests]
+      properties:
+        requests:
+          type: array
+          items: { $ref: '#/components/schemas/SpeakerRequest' }
 
     JoinRoomResponse:
       type: object
@@ -330,7 +383,29 @@ paths:
                 userId: { type: string }
                 role: { type: string, enum: [speaker, listener] }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Participant' } } } }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: { type: string }
+
+  /rooms/{slug}/speaker-requests:
+    get:
+      tags: [rooms]
+      summary: List pending speaker requests (host only)
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeakerRequestsResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /livekit/token:
     post:
