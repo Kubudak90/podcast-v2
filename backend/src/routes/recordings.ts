@@ -74,52 +74,6 @@ router.get('/:id/file', async (req: Request<{ id: string }>, res: Response) => {
   }
 });
 
-// GET /api/rooms/:slug/recordings - Get recordings for a room
-router.get('/rooms/:slug/recordings', authMiddleware, async (req: AuthRequest<{ slug: string }>, res: Response) => {
-  try {
-    const { slug } = req.params;
-
-    const room = await prisma.room.findUnique({
-      where: { slug },
-    });
-
-    if (!room) {
-      return res.status(404).json({ message: 'Room not found' });
-    }
-
-    const participant = await prisma.roomParticipant.findFirst({
-      where: {
-        roomId: room.id,
-        userId: req.userId!,
-      },
-    });
-
-    if (room.hostId !== req.userId && !participant) {
-      return res.status(403).json({ message: 'You do not have permission to view these recordings' });
-    }
-
-    const recordings = await prisma.recording.findMany({
-      where: { roomId: room.id },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    res.json(
-      recordings.map((r: typeof recordings[number]) => ({
-        id: r.id,
-        roomId: r.roomId,
-        fileUrl: r.fileUrl,
-        durationSeconds: r.durationSeconds || 0,
-        fileSizeBytes: Number(r.fileSizeBytes) || 0,
-        format: r.format,
-        createdAt: r.createdAt.toISOString(),
-      }))
-    );
-  } catch (error) {
-    logError(error as Error, { action: 'get_recordings' });
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
 // GET /api/recordings/:id/download - Get download URL for a recording
 router.get('/:id/download', authMiddleware, async (req: AuthRequest<{ id: string }>, res: Response) => {
   try {

@@ -488,14 +488,15 @@ router.post('/:slug/end', async (req: AuthRequest<{ slug: string }>, res: Respon
             roomId: room.id,
             fileUrl: room.recordingFileUrl,
             durationSeconds,
-            format: 'mp3',
+            // Room composite egress writes an MP4 container (see startRoomRecording).
+            format: 'mp4',
           };
         }
       } catch (egressError) {
         logRecording('error', room.slug, room.egressId, (egressError as Error).message);
         emitRoomUpdate(room.slug, {
           type: 'recording_stopped',
-          payload: { error: 'Kayit durdurulurken hata olustu' },
+          payload: { error: 'Failed to stop recording' },
         });
         // Continue ending the room even if recording stop fails
       }
@@ -669,6 +670,52 @@ router.patch('/:slug/role', validate(changeRoleSchema), async (req: AuthRequest<
     res.json({ message: 'Role updated successfully' });
   } catch (error) {
     logError(error as Error, { action: 'change_role', userId: req.userId });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET /api/rooms/:slug/recordings - Get recordings for a room (host or participant only)
+router.get('/:slug/recordings', async (req: AuthRequest<{ slug: string }>, res: Response) => {
+  try {
+    const { slug } = req.params;
+
+    const room = await prisma.room.findUnique({
+      where: { slug },
+    });
+
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    const participant = await prisma.roomParticipant.findFirst({
+      where: {
+        roomId: room.id,
+        userId: req.userId!,
+      },
+    });
+
+    if (room.hostId !== req.userId && !participant) {
+      return res.status(403).json({ message: 'You do not have permission to view these recordings' });
+    }
+
+    const recordings = await prisma.recording.findMany({
+      where: { roomId: room.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(
+      recordings.map((r: typeof recordings[number]) => ({
+        id: r.id,
+        roomId: r.roomId,
+        fileUrl: r.fileUrl,
+        durationSeconds: r.durationSeconds || 0,
+        fileSizeBytes: Number(r.fileSizeBytes) || 0,
+        format: r.format,
+        createdAt: r.createdAt.toISOString(),
+      }))
+    );
+  } catch (error) {
+    logError(error as Error, { action: 'get_recordings', userId: req.userId });
     res.status(500).json({ message: 'Internal server error' });
   }
 });

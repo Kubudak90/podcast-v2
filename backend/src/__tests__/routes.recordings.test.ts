@@ -87,6 +87,45 @@ describe('Recordings Routes', () => {
     vi.clearAllMocks();
   });
 
+  describe('GET /api/rooms/:slug/recordings', () => {
+    it('should return recordings for a room participant', async () => {
+      mockPrisma.room.findUnique.mockResolvedValue({ id: 'room-1', slug: 'my-room', hostId: 'someone-else' });
+      mockPrisma.roomParticipant.findFirst.mockResolvedValue({ id: 'p-1', userId: 'user-123' });
+      mockPrisma.recording.findMany.mockResolvedValue([
+        { id: 'rec-1', roomId: 'room-1', fileUrl: 'local://rec.mp4', durationSeconds: 120, fileSizeBytes: 4096, format: 'mp4', createdAt: new Date('2024-01-15') },
+      ]);
+
+      const response = await request(app)
+        .get('/api/rooms/my-room/recordings')
+        .set('Authorization', `Bearer ${testToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0]).toMatchObject({ id: 'rec-1', format: 'mp4', durationSeconds: 120 });
+    });
+
+    it('should 403 for a non-participant, non-host', async () => {
+      mockPrisma.room.findUnique.mockResolvedValue({ id: 'room-1', slug: 'my-room', hostId: 'someone-else' });
+      mockPrisma.roomParticipant.findFirst.mockResolvedValue(null);
+
+      const response = await request(app)
+        .get('/api/rooms/my-room/recordings')
+        .set('Authorization', `Bearer ${testToken}`);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should 404 when the room does not exist', async () => {
+      mockPrisma.room.findUnique.mockResolvedValue(null);
+
+      const response = await request(app)
+        .get('/api/rooms/missing/recordings')
+        .set('Authorization', `Bearer ${testToken}`);
+
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe('PATCH /api/recordings/:id', () => {
     it('should update recording title and description', async () => {
       mockPrisma.recording.findUnique.mockResolvedValue({

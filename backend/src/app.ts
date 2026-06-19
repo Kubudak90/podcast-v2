@@ -56,7 +56,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/rooms', roomsRoutes);
   app.use('/api/recordings', recordingsRoutes);
-  app.use('/api', recordingsRoutes); // For /api/rooms/:slug/recordings path
+  // Per-room recordings (/api/rooms/:slug/recordings) is served by roomsRoutes.
   app.use('/api', chatRoutes); // For /api/rooms/:slug/chat path
   app.use('/api/livekit', livekitRoutes);
   app.use('/api/users', usersRoutes);
