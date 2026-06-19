@@ -2,6 +2,8 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { createLiveKitToken, getLiveKitUrl } from '../lib/livekit.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { getLiveKitTokenSchema } from '../lib/validation.js';
 import { logError } from '../lib/logger.js';
 
 const router = Router();
@@ -9,13 +11,9 @@ const router = Router();
 router.use(authMiddleware);
 
 // POST /api/livekit/token - Get LiveKit token for a room
-router.post('/token', async (req: AuthRequest, res: Response) => {
+router.post('/token', validate(getLiveKitTokenSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { roomSlug } = req.body;
-
-    if (!roomSlug) {
-      return res.status(400).json({ message: 'roomSlug is required' });
-    }
 
     // Get room and check participant
     const room = await prisma.room.findUnique({

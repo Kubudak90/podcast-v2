@@ -139,34 +139,32 @@ POST /api/livekit/token   -- LiveKit room token al
 
 ## Socket.IO Realtime Events
 
-Realtime senkronizasyon `backend/src/lib/socket.ts` üzerinden yürütülür. İstemciler oda slug bazlı namespace'e bağlanır.
+Gerçek sözleşme `backend/src/lib/socket.ts`'tir. Bağlantı el sıkışmasında JWT ile kimlik doğrulanır (`auth.token`); istemci `room:<slug>` kanalına katılır. Sunucu→istemci güncellemeleri **tek bir `room:update` zarfı** + ayrı bir `chat:message` kanalı üzerinden gider. (Eski `room:state` / `mic:toggle` / `participant:*` / `recording:started` API'si KULLANILMIYOR — ne backend ne istemciler.)
 
 ```typescript
+// Bağlantı: io(url, { auth: { token } })
+
 // Client → Server
-socket.emit('room:join',   { slug, token });
-socket.emit('room:leave',  { slug });
-socket.emit('role:update', { slug, userId, role });
-socket.emit('mic:toggle',  { slug, muted });
+socket.emit('room:join', roomSlug);              // düz string
+socket.emit('room:leave', roomSlug);             // düz string
+socket.emit('chat:send', { roomSlug, content }); // content max 500 char
+socket.emit('speaker:request', { roomSlug });
+socket.emit('speaker:reject', { roomSlug, userId }); // host only
 
-// Server → Client
-socket.on('room:state',         (state: RoomState) => {});
-socket.on('participant:joined', (p: Participant) => {});
-socket.on('participant:left',   ({ userId }) => {});
-socket.on('participant:update', (p: Participant) => {});
-socket.on('recording:started',  ({ recordingId }) => {});
-socket.on('recording:stopped',  () => {});
-socket.on('room:ended',         () => {});
+// Server → Client: tek zarf
+socket.on('room:update', ({ type, payload }) => {});
+// type ∈:
+//   'status_changed'            payload: { status, isRecording }
+//   'participant_joined'        payload: { userId, username, role, avatarUrl? }
+//   'participant_left'          payload: { userId }
+//   'participant_role_changed'  payload: { userId, role }
+//   'recording_started'         (tanımlı ama şu an emit EDİLMİYOR; status_changed kullanılır)
+//   'recording_stopped'         payload: { error? }
+//   'speaker_requested'         payload: { userId, username, avatarUrl?, requestedAt }
+//   'speaker_request_resolved'  payload: { userId, accepted }
 
-// RoomState shape
-interface RoomState {
-  roomId: string;
-  slug: string;
-  title: string;
-  status: 'waiting' | 'live' | 'ended';
-  hostId: string;
-  isRecording: boolean;
-  participants: Participant[];
-}
+// Ayrı kanal
+socket.on('chat:message', ({ id, userId, username, content, createdAt }) => {});
 ```
 
 ## Frontend Sayfa Yapısı
