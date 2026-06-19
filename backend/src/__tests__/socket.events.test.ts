@@ -28,6 +28,7 @@ vi.mock('../lib/prisma.js', () => ({
     user: { findUnique: vi.fn() },
     room: { findUnique: vi.fn() },
     chatMessage: { create: vi.fn() },
+    roomParticipant: { updateMany: vi.fn() },
   },
 }));
 
@@ -41,7 +42,9 @@ import {
   emitParticipantRoleChanged,
   emitSpeakerRequested,
   emitSpeakerRequestResolved,
+  markParticipantLeftIfActive,
 } from '../lib/socket.js';
+import { prisma } from '../lib/prisma.js';
 
 describe('Socket Event Emitters', () => {
   beforeEach(() => {
@@ -188,6 +191,46 @@ describe('Socket Event Emitters', () => {
         type: 'speaker_request_resolved',
         payload: { userId: 'user-2', accepted: false },
       });
+    });
+  });
+
+  describe('markParticipantLeftIfActive', () => {
+    const mockedPrisma = prisma as unknown as {
+      room: { findUnique: ReturnType<typeof vi.fn> };
+      roomParticipant: { updateMany: ReturnType<typeof vi.fn> };
+    };
+
+    it('marks an active participant left and emits participant_left', async () => {
+      mockedPrisma.room.findUnique.mockResolvedValue({ id: 'room-1', slug: 'my-room' });
+      mockedPrisma.roomParticipant.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await markParticipantLeftIfActive('my-room', 'user-1');
+
+      expect(result).toBe(true);
+      expect(mockTo).toHaveBeenCalledWith('room:my-room');
+      expect(mockEmit).toHaveBeenCalledWith('room:update', {
+        type: 'participant_left',
+        payload: { userId: 'user-1' },
+      });
+    });
+
+    it('does not emit when the participant was already gone (idempotent with HTTP /leave)', async () => {
+      mockedPrisma.room.findUnique.mockResolvedValue({ id: 'room-1', slug: 'my-room' });
+      mockedPrisma.roomParticipant.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await markParticipantLeftIfActive('my-room', 'user-1');
+
+      expect(result).toBe(false);
+      expect(mockEmit).not.toHaveBeenCalled();
+    });
+
+    it('returns false when the room does not exist', async () => {
+      mockedPrisma.room.findUnique.mockResolvedValue(null);
+
+      const result = await markParticipantLeftIfActive('missing', 'user-1');
+
+      expect(result).toBe(false);
+      expect(mockEmit).not.toHaveBeenCalled();
     });
   });
 });

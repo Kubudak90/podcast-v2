@@ -42,6 +42,87 @@ async function findActiveParticipant(roomSlug: string, userId: string) {
   return { room, participant: room?.participants[0] };
 }
 
+// --- Presence tracking ---------------------------------------------------
+// A participant may hold several sockets (multiple tabs/devices) and brief
+// network blips trigger reconnects. We only mark someone "left" once their
+// LAST socket has been gone for a short grace period — so transient drops and
+// multi-tab use don't deflate participant counts, and we don't fight the
+// reconnect flow (room:join requires an active participant row, leftAt = null).
+const DISCONNECT_GRACE_MS = 30_000;
+const roomPresence = new Map<string, Set<string>>(); // `${slug}::${userId}` -> socket ids
+const pendingLeaves = new Map<string, ReturnType<typeof setTimeout>>();
+
+function presenceKey(roomSlug: string, userId: string): string {
+  return `${roomSlug}::${userId}`;
+}
+
+function addPresence(roomSlug: string, userId: string, socketId: string): void {
+  const key = presenceKey(roomSlug, userId);
+  const sockets = roomPresence.get(key) ?? new Set<string>();
+  sockets.add(socketId);
+  roomPresence.set(key, sockets);
+
+  // The user is (back) in the room — cancel any pending leave.
+  const pending = pendingLeaves.get(key);
+  if (pending) {
+    clearTimeout(pending);
+    pendingLeaves.delete(key);
+  }
+}
+
+/** Removes a socket from presence; returns true if it was the user's last one. */
+function removePresence(roomSlug: string, userId: string, socketId: string): boolean {
+  const key = presenceKey(roomSlug, userId);
+  const sockets = roomPresence.get(key);
+  if (!sockets) return false;
+  sockets.delete(socketId);
+  if (sockets.size === 0) {
+    roomPresence.delete(key);
+    return true;
+  }
+  return false;
+}
+
+function scheduleParticipantLeave(roomSlug: string, userId: string): void {
+  const key = presenceKey(roomSlug, userId);
+  if (pendingLeaves.has(key)) return;
+
+  const timer = setTimeout(() => {
+    pendingLeaves.delete(key);
+    // Reconnected (or another socket present) during the grace window — keep them.
+    if (roomPresence.has(key)) return;
+    void markParticipantLeftIfActive(roomSlug, userId);
+  }, DISCONNECT_GRACE_MS);
+
+  // A pending cleanup shouldn't keep the process alive on shutdown.
+  if (typeof timer.unref === 'function') timer.unref();
+  pendingLeaves.set(key, timer);
+}
+
+/**
+ * Marks a participant as left and emits `participant_left`, but only if their
+ * row was still active. The `leftAt: null` guard makes this idempotent with the
+ * HTTP `/leave` endpoint, so we never double-emit.
+ */
+export async function markParticipantLeftIfActive(roomSlug: string, userId: string): Promise<boolean> {
+  const room = await prisma.room.findUnique({
+    where: { slug: roomSlug },
+    select: { id: true, slug: true },
+  });
+  if (!room) return false;
+
+  const result = await prisma.roomParticipant.updateMany({
+    where: { roomId: room.id, userId, leftAt: null },
+    data: { leftAt: new Date() },
+  });
+
+  if (result.count > 0) {
+    emitParticipantLeft(room.slug, userId);
+    return true;
+  }
+  return false;
+}
+
 export function initializeSocket(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
     cors: {
@@ -91,6 +172,7 @@ export function initializeSocket(httpServer: HttpServer): Server {
         if (!room || room.status === 'ended' || !participant) return;
 
         socket.join(`room:${roomSlug}`);
+        addPresence(roomSlug, socket.userId, socket.id);
         logger.debug({ username: socket.username, roomSlug }, 'User joined room channel');
       } catch (error) {
         logger.error({ error, userId: socket.userId, roomSlug }, 'Failed to join room channel');
@@ -100,6 +182,10 @@ export function initializeSocket(httpServer: HttpServer): Server {
     // Leave a room channel
     socket.on('room:leave', (roomSlug: string) => {
       socket.leave(`room:${roomSlug}`);
+      if (socket.userId) {
+        // Explicit leave; the HTTP /leave endpoint owns marking leftAt.
+        removePresence(roomSlug, socket.userId, socket.id);
+      }
       logger.debug({ username: socket.username, roomSlug }, 'User left room channel');
     });
 
@@ -205,6 +291,21 @@ export function initializeSocket(httpServer: HttpServer): Server {
         logger.debug({ username: socket.username, roomSlug: data.roomSlug, targetUserId: data.userId }, 'Speaker request rejected');
       } catch (error) {
         logger.error({ error, userId: socket.userId }, 'Failed to reject speaker request');
+      }
+    });
+
+    // `disconnecting` fires while socket.rooms is still populated, so we can see
+    // which room channels this socket belonged to. If it was the user's last
+    // socket in a room, schedule a grace-period leave (cancelled on reconnect).
+    socket.on('disconnecting', () => {
+      if (!socket.userId) return;
+      const userId = socket.userId;
+      for (const channel of socket.rooms) {
+        if (!channel.startsWith('room:')) continue;
+        const roomSlug = channel.slice('room:'.length);
+        if (removePresence(roomSlug, userId, socket.id)) {
+          scheduleParticipantLeave(roomSlug, userId);
+        }
       }
     });
 
