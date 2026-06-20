@@ -6,9 +6,9 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
 import { roomCreateLimiter } from '../middleware/rateLimit.js';
-import { createRoomSchema, changeRoleSchema, joinRoomSchema, roomListQuerySchema } from '../lib/validation.js';
-import { startRoomRecording, stopRoomRecording, setParticipantCanPublish } from '../lib/livekit.js';
-import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate } from '../lib/socket.js';
+import { createRoomSchema, changeRoleSchema, joinRoomSchema, roomListQuerySchema, participantActionSchema } from '../lib/validation.js';
+import { startRoomRecording, stopRoomRecording, setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
+import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate, emitParticipantMuted, emitParticipantRemoved } from '../lib/socket.js';
 import { logRecording, logError } from '../lib/logger.js';
 import { notifyFollowersOfLive } from '../lib/push.js';
 
@@ -252,6 +252,10 @@ router.post('/:slug/join', validate(joinRoomSchema), async (req: AuthRequest<{ s
         },
       },
     });
+
+    if (existingParticipant?.kickedAt) {
+      return res.status(403).json({ message: 'You were removed from this room' });
+    }
 
     if (existingParticipant && !existingParticipant.leftAt) {
       return res.json({
@@ -680,6 +684,72 @@ router.patch('/:slug/role', validate(changeRoleSchema), async (req: AuthRequest<
     res.json({ message: 'Role updated successfully' });
   } catch (error) {
     logError(error as Error, { action: 'change_role', userId: req.userId });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Helper: load room + assert the requester is the host. Returns the room or sends the error.
+async function requireHostRoom(req: AuthRequest<{ slug: string }>, res: Response) {
+  const room = await prisma.room.findUnique({ where: { slug: req.params.slug } });
+  if (!room) { res.status(404).json({ message: 'Room not found' }); return null; }
+  if (room.hostId !== req.userId) { res.status(403).json({ message: 'Only the host can moderate' }); return null; }
+  return room;
+}
+
+// POST /api/rooms/:slug/mute - hard-mute a speaker (host only)
+router.post('/:slug/mute', validate(participantActionSchema), async (req: AuthRequest<{ slug: string }>, res: Response) => {
+  try {
+    const room = await requireHostRoom(req, res);
+    if (!room) return;
+    const { userId } = req.body;
+    const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    if (!targetUser) return res.status(404).json({ message: 'User not found' });
+
+    await prisma.roomParticipant.updateMany({ where: { roomId: room.id, userId, leftAt: null }, data: { mutedByHost: true } });
+    await setParticipantCanPublish(room.slug, targetUser.username, false);
+    emitParticipantMuted(room.slug, userId, true);
+    res.json({ message: 'Participant muted' });
+  } catch (error) {
+    logError(error as Error, { action: 'mute_participant', userId: req.userId });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST /api/rooms/:slug/unmute - allow a speaker to speak again (host only / approves unmute request)
+router.post('/:slug/unmute', validate(participantActionSchema), async (req: AuthRequest<{ slug: string }>, res: Response) => {
+  try {
+    const room = await requireHostRoom(req, res);
+    if (!room) return;
+    const { userId } = req.body;
+    const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    if (!targetUser) return res.status(404).json({ message: 'User not found' });
+
+    await prisma.roomParticipant.updateMany({ where: { roomId: room.id, userId, leftAt: null }, data: { mutedByHost: false } });
+    await setParticipantCanPublish(room.slug, targetUser.username, true);
+    emitParticipantMuted(room.slug, userId, false);
+    res.json({ message: 'Participant unmuted' });
+  } catch (error) {
+    logError(error as Error, { action: 'unmute_participant', userId: req.userId });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST /api/rooms/:slug/remove - eject a participant from the live session (host only)
+router.post('/:slug/remove', validate(participantActionSchema), async (req: AuthRequest<{ slug: string }>, res: Response) => {
+  try {
+    const room = await requireHostRoom(req, res);
+    if (!room) return;
+    const { userId } = req.body;
+    if (userId === room.hostId) return res.status(400).json({ message: 'Cannot remove the host' });
+    const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    if (!targetUser) return res.status(404).json({ message: 'User not found' });
+
+    await prisma.roomParticipant.updateMany({ where: { roomId: room.id, userId, leftAt: null }, data: { leftAt: new Date(), kickedAt: new Date() } });
+    try { await removeRoomParticipant(room.slug, targetUser.username); } catch (error) { logError(error as Error, { action: 'remove_livekit', userId }); }
+    emitParticipantRemoved(room.slug, userId);
+    res.json({ message: 'Participant removed' });
+  } catch (error) {
+    logError(error as Error, { action: 'remove_participant', userId: req.userId });
     res.status(500).json({ message: 'Internal server error' });
   }
 });

@@ -42,6 +42,10 @@ export const changeRoleSchema = z.object({
   }),
 });
 
+export const participantActionSchema = z.object({
+  userId: z.string().uuid('Invalid user ID'),
+});
+
 // LiveKit schemas
 export const getLiveKitTokenSchema = z.object({
   roomSlug: z.string().min(1, 'Room slug is required'),

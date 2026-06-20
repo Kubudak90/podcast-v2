@@ -68,6 +68,7 @@ vi.mock('../lib/livekit.js', () => ({
   startRoomRecording: vi.fn().mockResolvedValue({ egressId: 'mock-egress-id', filepath: 'recordings/test.mp3', fileUrl: 'https://s3.example.com/podchat-recordings/recordings/test.mp3' }),
   stopRoomRecording: vi.fn().mockResolvedValue(undefined),
   setParticipantCanPublish: vi.fn(),
+  removeRoomParticipant: vi.fn(),
 }));
 
 vi.mock('../lib/storage.js', () => ({
@@ -81,12 +82,15 @@ vi.mock('../lib/socket.js', () => ({
   emitRoomStatusChanged: vi.fn(),
   emitParticipantRoleChanged: vi.fn(),
   emitRoomUpdate: vi.fn(),
+  emitParticipantMuted: vi.fn(),
+  emitParticipantRemoved: vi.fn(),
 }));
 
 // Import after mocks are defined
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-import { setParticipantCanPublish } from '../lib/livekit.js';
+import { setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
+import { emitParticipantMuted } from '../lib/socket.js';
 
 // Type helper for mocked prisma
 type MockFn = ReturnType<typeof vi.fn>;
@@ -739,6 +743,49 @@ describe('Room Routes', () => {
 
       expect(res.status).toBe(200);
       expect(setParticipantCanPublish).toHaveBeenCalledWith('abc', 'alice', true);
+    });
+  });
+
+  describe('host moderation endpoints', () => {
+    beforeEach(() => {
+      (prisma.room.findUnique as any).mockResolvedValue({ id: 'r1', slug: 'abc', hostId: 'user-123' });
+      (prisma.user.findUnique as any).mockResolvedValue({ username: 'alice' });
+      (prisma.roomParticipant.updateMany as any).mockResolvedValue({ count: 1 });
+    });
+
+    it('POST /mute hard-mutes and flags mutedByHost', async () => {
+      const res = await request(app).post('/api/rooms/abc/mute')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ userId: '550e8400-e29b-41d4-a716-446655440001' });
+      expect(res.status).toBe(200);
+      expect(setParticipantCanPublish).toHaveBeenCalledWith('abc', 'alice', false);
+      expect(emitParticipantMuted).toHaveBeenCalledWith('abc', '550e8400-e29b-41d4-a716-446655440001', true);
+    });
+
+    it('POST /remove ejects the participant', async () => {
+      const res = await request(app).post('/api/rooms/abc/remove')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ userId: '550e8400-e29b-41d4-a716-446655440001' });
+      expect(res.status).toBe(200);
+      expect(removeRoomParticipant).toHaveBeenCalledWith('abc', 'alice');
+    });
+
+    it('POST /mute by non-host returns 403', async () => {
+      (prisma.room.findUnique as any).mockResolvedValue({ id: 'r1', slug: 'abc', hostId: 'someone-else' });
+      const res = await request(app).post('/api/rooms/abc/mute')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ userId: '550e8400-e29b-41d4-a716-446655440001' });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('POST /api/rooms/:slug/join kicked guard', () => {
+    it('POST /join rejects a kicked user', async () => {
+      (prisma.room.findUnique as any).mockResolvedValue({ id: 'r1', slug: 'abc', status: 'live', password: null, hostId: 'host-x' });
+      (prisma.roomParticipant.findUnique as any).mockResolvedValue({ id: 'p1', role: 'listener', leftAt: new Date(), kickedAt: new Date() });
+      const res = await request(app).post('/api/rooms/abc/join')
+        .set('Authorization', `Bearer ${validToken}`).send({});
+      expect(res.status).toBe(403);
     });
   });
 });
