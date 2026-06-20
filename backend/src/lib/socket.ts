@@ -3,6 +3,7 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { logger } from './logger.js';
 import { prisma } from './prisma.js';
+import { listRoomListeners } from './livekit.js';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -173,6 +174,7 @@ export function initializeSocket(httpServer: HttpServer): Server {
 
         socket.join(`room:${roomSlug}`);
         addPresence(roomSlug, socket.userId, socket.id);
+        void broadcastListenerCount(roomSlug);
         logger.debug({ username: socket.username, roomSlug }, 'User joined room channel');
       } catch (error) {
         logger.error({ error, userId: socket.userId, roomSlug }, 'Failed to join room channel');
@@ -185,6 +187,7 @@ export function initializeSocket(httpServer: HttpServer): Server {
       if (socket.userId) {
         // Explicit leave; the HTTP /leave endpoint owns marking leftAt.
         removePresence(roomSlug, socket.userId, socket.id);
+        void broadcastListenerCount(roomSlug);
       }
       logger.debug({ username: socket.username, roomSlug }, 'User left room channel');
     });
@@ -294,6 +297,22 @@ export function initializeSocket(httpServer: HttpServer): Server {
       }
     });
 
+    socket.on('speaker:unmute_request', async (data: { roomSlug: string }) => {
+      if (!socket.userId || !socket.username || !data?.roomSlug) return;
+      try {
+        const { room, participant } = await findActiveParticipant(data.roomSlug, socket.userId);
+        if (!room || room.status === 'ended' || !participant || participant.role === 'listener') return;
+        emitSpeakerUnmuteRequested(room.slug, {
+          userId: socket.userId,
+          username: participant.user.username,
+          avatarUrl: participant.user.avatarUrl,
+          requestedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        logger.error({ error, userId: socket.userId }, 'Failed to send unmute request');
+      }
+    });
+
     // `disconnecting` fires while socket.rooms is still populated, so we can see
     // which room channels this socket belonged to. If it was the user's last
     // socket in a room, schedule a grace-period leave (cancelled on reconnect).
@@ -305,6 +324,7 @@ export function initializeSocket(httpServer: HttpServer): Server {
         const roomSlug = channel.slice('room:'.length);
         if (removePresence(roomSlug, userId, socket.id)) {
           scheduleParticipantLeave(roomSlug, userId);
+          void broadcastListenerCount(roomSlug);
         }
       }
     });
@@ -420,4 +440,20 @@ export function emitListenerCount(roomSlug: string, count: number, sample: {
   userId: string; username: string; avatarUrl?: string | null;
 }[]) {
   emitRoomUpdate(roomSlug, { type: 'listener_count', payload: { count, sample } });
+}
+
+export async function broadcastListenerCount(roomSlug: string): Promise<void> {
+  try {
+    const { count, sampleIdentities } = await listRoomListeners(roomSlug);
+    const users = sampleIdentities.length
+      ? await prisma.user.findMany({
+          where: { username: { in: sampleIdentities } },
+          select: { id: true, username: true, avatarUrl: true },
+        })
+      : [];
+    const sample = users.map((u) => ({ userId: u.id, username: u.username, avatarUrl: u.avatarUrl }));
+    emitListenerCount(roomSlug, count, sample);
+  } catch (error) {
+    logger.error({ error, roomSlug }, 'Failed to broadcast listener count');
+  }
 }

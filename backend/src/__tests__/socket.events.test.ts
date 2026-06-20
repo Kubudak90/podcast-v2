@@ -25,11 +25,15 @@ vi.mock('../lib/logger.js', () => ({
 
 vi.mock('../lib/prisma.js', () => ({
   prisma: {
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), findMany: vi.fn() },
     room: { findUnique: vi.fn() },
     chatMessage: { create: vi.fn() },
     roomParticipant: { updateMany: vi.fn() },
   },
+}));
+
+vi.mock('../lib/livekit.js', () => ({
+  listRoomListeners: vi.fn().mockResolvedValue({ count: 2, sampleIdentities: ['alice', 'bob'] }),
 }));
 
 import { Server as HttpServer } from 'http';
@@ -48,6 +52,7 @@ import {
   emitSpeakerUnmuteRequested,
   emitSpeakerUnmuteResolved,
   emitListenerCount,
+  broadcastListenerCount,
 } from '../lib/socket.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -215,6 +220,17 @@ describe('Socket Event Emitters', () => {
         type: 'listener_count',
         payload: { count: 3, sample: [{ userId: 'u1', username: 'a', avatarUrl: null }] },
       });
+    });
+  });
+
+  describe('broadcastListenerCount', () => {
+    it('emits listener_count with count + resolved sample', async () => {
+      (prisma.user.findMany as any).mockResolvedValue([
+        { username: 'alice', id: 'a', avatarUrl: null },
+        { username: 'bob', id: 'b', avatarUrl: 'x' },
+      ]);
+      await broadcastListenerCount('test-room');
+      expect(mockEmit).toHaveBeenCalledWith('room:update', expect.objectContaining({ type: 'listener_count' }));
     });
   });
 
