@@ -84,13 +84,14 @@ vi.mock('../lib/socket.js', () => ({
   emitRoomUpdate: vi.fn(),
   emitParticipantMuted: vi.fn(),
   emitParticipantRemoved: vi.fn(),
+  emitSpeakerUnmuteResolved: vi.fn(),
 }));
 
 // Import after mocks are defined
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
 import { setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
-import { emitParticipantMuted, emitParticipantRemoved } from '../lib/socket.js';
+import { emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved } from '../lib/socket.js';
 
 // Type helper for mocked prisma
 type MockFn = ReturnType<typeof vi.fn>;
@@ -778,6 +779,16 @@ describe('Room Routes', () => {
       expect(res.status).toBe(200);
       expect(setParticipantCanPublish).toHaveBeenCalledWith('abc', 'alice', true);
       expect(emitParticipantMuted).toHaveBeenCalledWith('abc', '550e8400-e29b-41d4-a716-446655440001', false);
+      expect(emitSpeakerUnmuteResolved).toHaveBeenCalledWith('abc', '550e8400-e29b-41d4-a716-446655440001');
+    });
+
+    it('POST /mute returns 200 even if LiveKit setParticipantCanPublish fails', async () => {
+      (setParticipantCanPublish as any).mockRejectedValueOnce(new Error('livekit down'));
+      const res = await request(app).post('/api/rooms/abc/mute')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ userId: '550e8400-e29b-41d4-a716-446655440001' });
+      expect(res.status).toBe(200);
+      expect(emitParticipantMuted).toHaveBeenCalledWith('abc', '550e8400-e29b-41d4-a716-446655440001', true);
     });
 
     it('POST /mute by non-host returns 403', async () => {

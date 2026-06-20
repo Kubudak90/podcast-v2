@@ -8,7 +8,7 @@ import { validate, validateQuery } from '../middleware/validate.js';
 import { roomCreateLimiter } from '../middleware/rateLimit.js';
 import { createRoomSchema, changeRoleSchema, joinRoomSchema, roomListQuerySchema, participantActionSchema } from '../lib/validation.js';
 import { startRoomRecording, stopRoomRecording, setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
-import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate, emitParticipantMuted, emitParticipantRemoved } from '../lib/socket.js';
+import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate, emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved } from '../lib/socket.js';
 import { logRecording, logError } from '../lib/logger.js';
 import { notifyFollowersOfLive } from '../lib/push.js';
 
@@ -706,7 +706,8 @@ router.post('/:slug/mute', validate(participantActionSchema), async (req: AuthRe
     if (!targetUser) return res.status(404).json({ message: 'User not found' });
 
     await prisma.roomParticipant.updateMany({ where: { roomId: room.id, userId, leftAt: null }, data: { mutedByHost: true } });
-    await setParticipantCanPublish(room.slug, targetUser.username, false);
+    try { await setParticipantCanPublish(room.slug, targetUser.username, false); }
+    catch (error) { logError(error as Error, { action: 'mute_livekit', userId }); }
     emitParticipantMuted(room.slug, userId, true);
     res.json({ message: 'Participant muted' });
   } catch (error) {
@@ -725,8 +726,10 @@ router.post('/:slug/unmute', validate(participantActionSchema), async (req: Auth
     if (!targetUser) return res.status(404).json({ message: 'User not found' });
 
     await prisma.roomParticipant.updateMany({ where: { roomId: room.id, userId, leftAt: null }, data: { mutedByHost: false } });
-    await setParticipantCanPublish(room.slug, targetUser.username, true);
+    try { await setParticipantCanPublish(room.slug, targetUser.username, true); }
+    catch (error) { logError(error as Error, { action: 'unmute_livekit', userId }); }
     emitParticipantMuted(room.slug, userId, false);
+    emitSpeakerUnmuteResolved(room.slug, userId);
     res.json({ message: 'Participant unmuted' });
   } catch (error) {
     logError(error as Error, { action: 'unmute_participant', userId: req.userId });
