@@ -1,4 +1,4 @@
-import { AccessToken, EgressClient, EncodedFileOutput, EncodedFileType, S3Upload } from 'livekit-server-sdk';
+import { AccessToken, EgressClient, EncodedFileOutput, EncodedFileType, RoomServiceClient, S3Upload } from 'livekit-server-sdk';
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
@@ -119,4 +119,43 @@ export async function startRoomRecording(roomName: string, timestamp: number): P
 export async function stopRoomRecording(egressId: string): Promise<void> {
   const client = getEgressClient();
   await client.stopEgress(egressId);
+}
+
+let roomServiceClient: RoomServiceClient | null = null;
+
+export function getRoomServiceClient(): RoomServiceClient {
+  if (!roomServiceClient) {
+    roomServiceClient = new RoomServiceClient(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+  }
+  return roomServiceClient;
+}
+
+// Live permission change for a connected participant. Revoking canPublish
+// auto-unpublishes their tracks (hard mute); granting it lets them speak —
+// the connected client is notified immediately, no reconnect.
+export async function setParticipantCanPublish(
+  roomName: string,
+  identity: string,
+  canPublish: boolean
+): Promise<void> {
+  await getRoomServiceClient().updateParticipant(roomName, identity, undefined, {
+    canPublish,
+    canSubscribe: true,
+    canPublishData: true,
+  });
+}
+
+export async function removeRoomParticipant(roomName: string, identity: string): Promise<void> {
+  await getRoomServiceClient().removeParticipant(roomName, identity);
+}
+
+export async function listRoomListeners(
+  roomName: string
+): Promise<{ count: number; sampleIdentities: string[] }> {
+  const participants = await getRoomServiceClient().listParticipants(roomName);
+  const listeners = participants.filter((p) => p.permission?.canPublish === false);
+  return {
+    count: listeners.length,
+    sampleIdentities: listeners.slice(0, 8).map((p) => p.identity),
+  };
 }
