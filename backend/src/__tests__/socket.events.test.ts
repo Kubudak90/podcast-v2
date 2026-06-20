@@ -43,6 +43,11 @@ import {
   emitSpeakerRequested,
   emitSpeakerRequestResolved,
   markParticipantLeftIfActive,
+  emitParticipantMuted,
+  emitParticipantRemoved,
+  emitSpeakerUnmuteRequested,
+  emitSpeakerUnmuteResolved,
+  emitListenerCount,
 } from '../lib/socket.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -190,6 +195,25 @@ describe('Socket Event Emitters', () => {
       expect(mockEmit).toHaveBeenCalledWith('room:update', {
         type: 'speaker_request_resolved',
         payload: { userId: 'user-2', accepted: false },
+      });
+    });
+  });
+
+  describe('new moderation emitters', () => {
+    it('emitParticipantMuted emits room:update participant_muted', () => {
+      emitParticipantMuted('test-room', 'u1', true);
+      expect(mockTo).toHaveBeenCalledWith('room:test-room');
+      expect(mockEmit).toHaveBeenCalledWith('room:update', {
+        type: 'participant_muted',
+        payload: { userId: 'u1', mutedByHost: true },
+      });
+    });
+
+    it('emitListenerCount emits room:update listener_count', () => {
+      emitListenerCount('test-room', 3, [{ userId: 'u1', username: 'a', avatarUrl: null }]);
+      expect(mockEmit).toHaveBeenCalledWith('room:update', {
+        type: 'listener_count',
+        payload: { count: 3, sample: [{ userId: 'u1', username: 'a', avatarUrl: null }] },
       });
     });
   });

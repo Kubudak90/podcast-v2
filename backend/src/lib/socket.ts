@@ -331,10 +331,15 @@ export function emitRoomUpdate(roomSlug: string, data: {
     | 'participant_joined'
     | 'participant_left'
     | 'participant_role_changed'
+    | 'participant_muted'
+    | 'participant_removed'
     | 'recording_started'
     | 'recording_stopped'
     | 'speaker_requested'
-    | 'speaker_request_resolved';
+    | 'speaker_request_resolved'
+    | 'speaker_unmute_requested'
+    | 'speaker_unmute_resolved'
+    | 'listener_count';
   payload: Record<string, unknown>;
 }) {
   if (!io) return;
@@ -391,4 +396,28 @@ export function emitSpeakerRequestResolved(roomSlug: string, userId: string, acc
     type: 'speaker_request_resolved',
     payload: { userId, accepted },
   });
+}
+
+export function emitParticipantMuted(roomSlug: string, userId: string, mutedByHost: boolean) {
+  emitRoomUpdate(roomSlug, { type: 'participant_muted', payload: { userId, mutedByHost } });
+}
+
+export function emitParticipantRemoved(roomSlug: string, userId: string) {
+  emitRoomUpdate(roomSlug, { type: 'participant_removed', payload: { userId } });
+}
+
+export function emitSpeakerUnmuteRequested(roomSlug: string, request: {
+  userId: string; username: string; avatarUrl?: string | null; requestedAt: string;
+}) {
+  emitRoomUpdate(roomSlug, { type: 'speaker_unmute_requested', payload: request });
+}
+
+export function emitSpeakerUnmuteResolved(roomSlug: string, userId: string) {
+  emitRoomUpdate(roomSlug, { type: 'speaker_unmute_resolved', payload: { userId } });
+}
+
+export function emitListenerCount(roomSlug: string, count: number, sample: {
+  userId: string; username: string; avatarUrl?: string | null;
+}[]) {
+  emitRoomUpdate(roomSlug, { type: 'listener_count', payload: { count, sample } });
 }
