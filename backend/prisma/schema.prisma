@@ -63,12 +63,14 @@ model Room {
 }
 
 model RoomParticipant {
-  id       String    @id @default(uuid())
-  roomId   String
-  userId   String
-  role     String // host, speaker, listener
-  joinedAt DateTime  @default(now())
-  leftAt   DateTime?
+  id          String    @id @default(uuid())
+  roomId      String
+  userId      String
+  role        String // host, speaker, listener
+  mutedByHost Boolean   @default(false)
+  joinedAt    DateTime  @default(now())
+  leftAt      DateTime?
+  kickedAt    DateTime?
 
   // Relations
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
