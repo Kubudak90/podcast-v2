@@ -90,7 +90,7 @@ vi.mock('../lib/socket.js', () => ({
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
 import { setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
-import { emitParticipantMuted } from '../lib/socket.js';
+import { emitParticipantMuted, emitParticipantRemoved } from '../lib/socket.js';
 
 // Type helper for mocked prisma
 type MockFn = ReturnType<typeof vi.fn>;
@@ -768,6 +768,16 @@ describe('Room Routes', () => {
         .send({ userId: '550e8400-e29b-41d4-a716-446655440001' });
       expect(res.status).toBe(200);
       expect(removeRoomParticipant).toHaveBeenCalledWith('abc', 'alice');
+      expect(emitParticipantRemoved).toHaveBeenCalledWith('abc', '550e8400-e29b-41d4-a716-446655440001');
+    });
+
+    it('POST /unmute clears mute and re-grants publish', async () => {
+      const res = await request(app).post('/api/rooms/abc/unmute')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ userId: '550e8400-e29b-41d4-a716-446655440001' });
+      expect(res.status).toBe(200);
+      expect(setParticipantCanPublish).toHaveBeenCalledWith('abc', 'alice', true);
+      expect(emitParticipantMuted).toHaveBeenCalledWith('abc', '550e8400-e29b-41d4-a716-446655440001', false);
     });
 
     it('POST /mute by non-host returns 403', async () => {
