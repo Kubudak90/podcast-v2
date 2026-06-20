@@ -67,6 +67,7 @@ vi.mock('../lib/livekit.js', () => ({
   createLiveKitToken: vi.fn().mockResolvedValue({ token: 'mock-token', expiresAt: new Date(Date.now() + 3600000).toISOString() }),
   startRoomRecording: vi.fn().mockResolvedValue({ egressId: 'mock-egress-id', filepath: 'recordings/test.mp3', fileUrl: 'https://s3.example.com/podchat-recordings/recordings/test.mp3' }),
   stopRoomRecording: vi.fn().mockResolvedValue(undefined),
+  setParticipantCanPublish: vi.fn(),
 }));
 
 vi.mock('../lib/storage.js', () => ({
@@ -85,6 +86,7 @@ vi.mock('../lib/socket.js', () => ({
 // Import after mocks are defined
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
+import { setParticipantCanPublish } from '../lib/livekit.js';
 
 // Type helper for mocked prisma
 type MockFn = ReturnType<typeof vi.fn>;
@@ -719,6 +721,24 @@ describe('Room Routes', () => {
         .set('Authorization', `Bearer ${validToken}`);
 
       expect(response.status).toBe(403);
+    });
+  });
+
+  describe('PATCH /api/rooms/:slug/role livekit propagation', () => {
+    it('grants publish on promote to speaker', async () => {
+      (prisma.room.findUnique as any).mockResolvedValue({ id: 'r1', slug: 'abc', hostId: 'user-123', maxSpeakers: 10 });
+      (prisma.roomParticipant.count as any).mockResolvedValue(1);
+      (prisma.roomParticipant.updateMany as any).mockResolvedValue({ count: 1 });
+      (prisma.speakerRequest.updateMany as any).mockResolvedValue({ count: 1 });
+      (prisma.user.findUnique as any).mockResolvedValue({ username: 'alice' });
+
+      const res = await request(app)
+        .patch('/api/rooms/abc/role')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ userId: '550e8400-e29b-41d4-a716-446655440001', role: 'speaker' });
+
+      expect(res.status).toBe(200);
+      expect(setParticipantCanPublish).toHaveBeenCalledWith('abc', 'alice', true);
     });
   });
 });

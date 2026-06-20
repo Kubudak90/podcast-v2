@@ -7,7 +7,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
 import { roomCreateLimiter } from '../middleware/rateLimit.js';
 import { createRoomSchema, changeRoleSchema, joinRoomSchema, roomListQuerySchema } from '../lib/validation.js';
-import { startRoomRecording, stopRoomRecording } from '../lib/livekit.js';
+import { startRoomRecording, stopRoomRecording, setParticipantCanPublish } from '../lib/livekit.js';
 import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate } from '../lib/socket.js';
 import { logRecording, logError } from '../lib/logger.js';
 import { notifyFollowersOfLive } from '../lib/push.js';
@@ -650,6 +650,16 @@ router.patch('/:slug/role', validate(changeRoleSchema), async (req: AuthRequest<
 
     if (result.count === 0) {
       return res.status(404).json({ message: 'Active participant not found' });
+    }
+
+    // Propagate the new permission to the connected LiveKit participant (no reconnect).
+    const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    if (targetUser) {
+      try {
+        await setParticipantCanPublish(room.slug, targetUser.username, role === 'speaker');
+      } catch (error) {
+        logError(error as Error, { action: 'role_livekit_propagate', userId });
+      }
     }
 
     await prisma.speakerRequest.updateMany({
