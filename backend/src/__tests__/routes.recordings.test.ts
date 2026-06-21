@@ -145,6 +145,7 @@ describe('Recordings Routes', () => {
         shareSlug: null,
         durationSeconds: 300,
         createdAt: new Date('2024-01-15'),
+        coverImageKey: 'local:///recordings/covers/rec-1.jpg',
       });
 
       const response = await request(app)
@@ -158,6 +159,7 @@ describe('Recordings Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.title).toBe('New Title');
       expect(response.body.description).toBe('New Description');
+      expect(response.body.coverImageUrl).toContain('/api/recordings/rec-1/cover');
     });
 
     it('should generate share slug when making public', async () => {
@@ -232,6 +234,7 @@ describe('Recordings Routes', () => {
         durationSeconds: 600,
         playCount: 10,
         createdAt: new Date('2024-01-15'),
+        coverImageKey: 'local:///recordings/covers/rec-1.jpg',
         room: {
           id: 'room-1',
           slug: 'test-room',
@@ -257,6 +260,7 @@ describe('Recordings Routes', () => {
           username: 'hostuser',
         },
       });
+      expect(response.body.coverImageUrl).toContain('/api/recordings/rec-1/cover');
       expect(mockPrisma.recording.update).toHaveBeenCalledWith({
         where: { id: 'rec-1' },
         data: { playCount: { increment: 1 } },
@@ -327,6 +331,7 @@ describe('Recordings Routes', () => {
           durationSeconds: 300,
           playCount: 10,
           createdAt: new Date('2024-01-15'),
+          coverImageKey: 'local:///recordings/covers/rec-1.jpg',
           room: {
             id: 'room-1',
             slug: 'room-slug-1',
@@ -373,6 +378,9 @@ describe('Recordings Routes', () => {
       });
       // Recording without title should use room title
       expect(response.body.recordings[1].title).toBe('Room 2');
+      // Cover URL is derived from coverImageKey; null key -> null
+      expect(response.body.recordings[0].coverImageUrl).toContain('/api/recordings/rec-1/cover');
+      expect(response.body.recordings[1].coverImageUrl).toBeNull();
     });
 
     it('should support pagination', async () => {

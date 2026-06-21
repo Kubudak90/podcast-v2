@@ -303,6 +303,7 @@ router.patch('/:id', authMiddleware, validate(recordingUpdateSchema), async (req
       description: updatedRecording.description,
       isPublic: updatedRecording.isPublic,
       shareSlug: updatedRecording.shareSlug,
+      coverImageUrl: buildCoverImageUrl(updatedRecording.id, updatedRecording.coverImageKey),
       durationSeconds: updatedRecording.durationSeconds,
       createdAt: updatedRecording.createdAt.toISOString(),
     });
@@ -350,6 +351,7 @@ router.get('/public/:shareSlug', optionalAuthMiddleware, async (req: AuthRequest
       durationSeconds: recording.durationSeconds,
       playCount: recording.playCount + 1,
       createdAt: recording.createdAt.toISOString(),
+      coverImageUrl: buildCoverImageUrl(recording.id, recording.coverImageKey),
       room: {
         id: recording.room.id,
         slug: recording.room.slug,
@@ -422,6 +424,7 @@ router.get('/feed', optionalAuthMiddleware, async (req: AuthRequest, res: Respon
         durationSeconds: r.durationSeconds,
         playCount: r.playCount,
         createdAt: r.createdAt.toISOString(),
+        coverImageUrl: buildCoverImageUrl(r.id, r.coverImageKey),
         room: {
           id: r.room.id,
           slug: r.room.slug,

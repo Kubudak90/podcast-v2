@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { logError } from '../lib/logger.js';
 import { notifyNewFollower } from '../lib/push.js';
+import { buildCoverImageUrl } from '../lib/storage.js';
 
 const router = Router();
 
@@ -238,6 +239,7 @@ router.get('/:userId/podcasts', async (req: AuthRequest<{ userId: string }>, res
       podcasts: recordings.map((r) => ({
         id: r.id,
         ownerId: r.ownerId,
+        coverImageUrl: buildCoverImageUrl(r.id, r.coverImageKey),
         title: r.title || r.room.title,
         isPublic: r.isPublic,
         shareSlug: r.shareSlug,

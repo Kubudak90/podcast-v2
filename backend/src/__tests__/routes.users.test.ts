@@ -45,6 +45,7 @@ vi.mock('../lib/livekit.js', () => ({
 
 vi.mock('../lib/storage.js', () => ({
   getPresignedDownloadUrl: vi.fn().mockResolvedValue('https://example.com/download'),
+  buildCoverImageUrl: vi.fn((id: string, key: string | null) => (key ? `https://livepodchat.com/api/recordings/${id}/cover?v=abc123abc123` : null)),
 }));
 
 import { createApp } from '../app.js';
@@ -290,8 +291,8 @@ describe('Users Routes', () => {
     it('owner sees public + private drafts', async () => {
       const token = generateToken(OWNER, 'owner');
       mockPrisma.recording.findMany.mockResolvedValue([
-        { id: 'a', ownerId: OWNER, title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
-        { id: 'b', ownerId: OWNER, title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
+        { id: 'a', ownerId: OWNER, coverImageKey: 'local:///recordings/covers/a.jpg', title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
+        { id: 'b', ownerId: OWNER, coverImageKey: null, title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
       ]);
 
       const res = await request(app)
@@ -303,6 +304,8 @@ describe('Users Routes', () => {
       expect(res.body.podcasts[0].title).toBe('Pub');
       expect(res.body.podcasts[0].ownerId).toBe(OWNER); // client needs ownerId to show owner controls
       expect(res.body.podcasts[1].title).toBe('Room2'); // title null -> room.title fallback
+      expect(res.body.podcasts[0].coverImageUrl).toContain('/api/recordings/a/cover');
+      expect(res.body.podcasts[1].coverImageUrl).toBeNull();
       expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER });
     });
 
