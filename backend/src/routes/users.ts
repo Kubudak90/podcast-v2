@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { logError } from '../lib/logger.js';
 import { notifyNewFollower } from '../lib/push.js';
 
@@ -220,10 +220,10 @@ router.get('/:userId/following', async (req: AuthRequest<{ userId: string }>, re
 });
 
 // GET /api/users/:userId/podcasts - a user's recordings (owner sees drafts; others public-only)
-router.get('/:userId/podcasts', optionalAuthMiddleware, async (req: AuthRequest<{ userId: string }>, res: Response) => {
+router.get('/:userId/podcasts', async (req: AuthRequest<{ userId: string }>, res: Response) => {
   try {
     const { userId } = req.params;
-    const limit = Math.min(Number(req.query.limit) || 20, 50);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
     const isOwner = req.userId === userId;
     const where = isOwner ? { ownerId: userId } : { ownerId: userId, isPublic: true };
 

@@ -300,6 +300,8 @@ describe('Users Routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.podcasts).toHaveLength(2);
+      expect(res.body.podcasts[0].title).toBe('Pub');
+      expect(res.body.podcasts[1].title).toBe('Room2'); // title null -> room.title fallback
       expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER });
     });
 
