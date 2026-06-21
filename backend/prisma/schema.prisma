@@ -28,6 +28,7 @@ model User {
   followers              UserFollow[]               @relation("Following")
   following              UserFollow[]               @relation("Followers")
   notificationSubscriptions NotificationSubscription[]
+  ownedRecordings        Recording[]                @relation("OwnedRecordings")
 
   @@unique([authProvider, authProviderId])
   @@map("users")
@@ -105,6 +106,7 @@ model SpeakerRequest {
 model Recording {
   id              String   @id @default(uuid())
   roomId          String
+  ownerId         String?
   fileUrl         String
   title           String?  // Optional custom title for sharing
   shareSlug       String?  @unique // Unique slug for public sharing
@@ -118,10 +120,12 @@ model Recording {
 
   // Relations
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  owner User? @relation("OwnedRecordings", fields: [ownerId], references: [id], onDelete: Cascade)
 
   // Indexes for common queries
   @@index([roomId])
   @@index([isPublic, createdAt])
+  @@index([ownerId, isPublic, createdAt])
   @@map("recordings")
 }
 
