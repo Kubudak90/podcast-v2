@@ -69,6 +69,9 @@ router.get('/:id/file', async (req: Request<{ id: string }>, res: Response) => {
     res.setHeader('Content-Disposition', `${payload.disposition}; filename="${path.basename(localPath)}"`);
     return res.sendFile(localPath);
   } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') {
+      return res.status(404).json({ message: 'Recording file not available yet' });
+    }
     logError(error as Error, { action: 'stream_local_recording' });
     res.status(500).json({ message: 'Internal server error' });
   }
@@ -108,6 +111,9 @@ router.get('/:id/download', authMiddleware, async (req: AuthRequest<{ id: string
     const url = await buildRecordingAccessUrl(recording.id, recording.fileUrl, disposition);
     res.json({ url });
   } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') {
+      return res.status(404).json({ message: 'Recording file not available yet' });
+    }
     logError(error as Error, { action: 'get_download_url' });
     res.status(500).json({ message: 'Internal server error' });
   }

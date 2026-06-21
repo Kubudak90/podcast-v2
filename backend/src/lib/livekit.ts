@@ -62,18 +62,20 @@ function getEgressClient(): EgressClient {
 export async function startRoomRecording(roomName: string, timestamp: number): Promise<{ egressId: string; filepath: string; fileUrl: string }> {
   const client = getEgressClient();
 
-  // Room composite egress is compatible with MP4, not MP3.
-  const filename = `${roomName}-${timestamp}.mp4`;
+  // Audio-only room-composite egress uses MP3 (a streaming container): the file
+  // finalizes even on abrupt room close, and iOS plays it natively. Audio-only MP4
+  // buffers in mp4mux and aborts ("Start signal not received"), leaving no file.
+  const filename = `${roomName}-${timestamp}.mp3`;
   const filepath = USE_LOCAL_STORAGE ? `${LOCAL_RECORDINGS_DIR}/${filename}` : `recordings/${filename}`;
 
   const output = USE_LOCAL_STORAGE
     ? new EncodedFileOutput({
         filepath,
-        fileType: EncodedFileType.MP4,
+        fileType: EncodedFileType.MP3,
       })
     : new EncodedFileOutput({
         filepath,
-        fileType: EncodedFileType.MP4,
+        fileType: EncodedFileType.MP3,
         output: {
           case: 's3',
           value: new S3Upload({

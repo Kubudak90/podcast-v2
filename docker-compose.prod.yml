@@ -100,7 +100,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
-      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_URL=wss://livekit.livepodchat.com
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - S3_ENDPOINT=${S3_ENDPOINT}
