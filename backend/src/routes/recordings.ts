@@ -127,20 +127,15 @@ router.patch('/:id', authMiddleware, validate(recordingUpdateSchema), async (req
 
     const recording = await prisma.recording.findUnique({
       where: { id },
-      include: {
-        room: {
-          select: { hostId: true },
-        },
-      },
+      select: { id: true, ownerId: true, shareSlug: true, isPublic: true },
     });
 
     if (!recording) {
       return res.status(404).json({ message: 'Recording not found' });
     }
 
-    // Only room host can update recording
-    if (recording.room.hostId !== req.userId) {
-      return res.status(403).json({ message: 'Only the room host can update recordings' });
+    if (recording.ownerId !== req.userId) {
+      return res.status(403).json({ message: 'Only the owner can update this recording' });
     }
 
     // Generate share slug if making public and no slug exists

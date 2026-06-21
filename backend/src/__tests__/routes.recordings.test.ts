@@ -134,7 +134,7 @@ describe('Recordings Routes', () => {
         description: null,
         isPublic: false,
         shareSlug: null,
-        room: { hostId: 'user-123' },
+        ownerId: 'user-123',
       });
       mockPrisma.recording.update.mockResolvedValue({
         id: 'rec-1',
@@ -165,7 +165,7 @@ describe('Recordings Routes', () => {
         title: 'Test',
         isPublic: false,
         shareSlug: null,
-        room: { hostId: 'user-123' },
+        ownerId: 'user-123',
       });
       mockPrisma.recording.update.mockResolvedValue({
         id: 'rec-1',
@@ -186,10 +186,10 @@ describe('Recordings Routes', () => {
       expect(response.body.shareSlug).toBe('abc123xyz0');
     });
 
-    it('should return 403 if not room host', async () => {
+    it('should return 403 if not owner', async () => {
       mockPrisma.recording.findUnique.mockResolvedValue({
         id: 'rec-1',
-        room: { hostId: 'other-user' },
+        ownerId: 'other-user',
       });
 
       const response = await request(app)
@@ -198,7 +198,14 @@ describe('Recordings Routes', () => {
         .send({ title: 'New Title' });
 
       expect(response.status).toBe(403);
-      expect(response.body.message).toBe('Only the room host can update recordings');
+      expect(response.body.message).toBe('Only the owner can update this recording');
+    });
+
+    it('returns 403 when requester is not the owner', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({ id: 'rec-1', ownerId: 'someone-else', shareSlug: null, isPublic: false });
+      const response = await request(app).patch('/api/recordings/rec-1')
+        .set('Authorization', `Bearer ${testToken}`).send({ title: 'X' });
+      expect(response.status).toBe(403);
     });
 
     it('should return 404 if recording not found', async () => {
