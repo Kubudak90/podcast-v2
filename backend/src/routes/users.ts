@@ -237,6 +237,7 @@ router.get('/:userId/podcasts', async (req: AuthRequest<{ userId: string }>, res
     res.json({
       podcasts: recordings.map((r) => ({
         id: r.id,
+        ownerId: r.ownerId,
         title: r.title || r.room.title,
         isPublic: r.isPublic,
         shareSlug: r.shareSlug,

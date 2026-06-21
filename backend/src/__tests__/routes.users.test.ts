@@ -290,8 +290,8 @@ describe('Users Routes', () => {
     it('owner sees public + private drafts', async () => {
       const token = generateToken(OWNER, 'owner');
       mockPrisma.recording.findMany.mockResolvedValue([
-        { id: 'a', title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
-        { id: 'b', title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
+        { id: 'a', ownerId: OWNER, title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
+        { id: 'b', ownerId: OWNER, title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
       ]);
 
       const res = await request(app)
@@ -301,6 +301,7 @@ describe('Users Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.podcasts).toHaveLength(2);
       expect(res.body.podcasts[0].title).toBe('Pub');
+      expect(res.body.podcasts[0].ownerId).toBe(OWNER); // client needs ownerId to show owner controls
       expect(res.body.podcasts[1].title).toBe('Room2'); // title null -> room.title fallback
       expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER });
     });
