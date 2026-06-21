@@ -28,12 +28,13 @@ vi.mock('../lib/storage.js', () => ({
   isLocalRecordingUrl: vi.fn().mockReturnValue(false),
   getLocalRecordingPath: vi.fn().mockReturnValue('/tmp/recordings/file.mp4'),
   createLocalRecordingAccessUrl: vi.fn().mockReturnValue('http://localhost:3001/api/local-recordings/file.mp4?token=test'),
-  verifyLocalRecordingAccessToken: vi.fn().mockReturnValue({
-    recordingId: 'rec-1',
-    disposition: 'attachment',
-  }),
+  verifyLocalRecordingAccessToken: vi.fn().mockReturnValue({ recordingId: 'rec-1', disposition: 'attachment' }),
   uploadFile: vi.fn(),
   getPresignedUploadUrl: vi.fn(),
+  isS3Configured: vi.fn().mockReturnValue(false),
+  uploadImage: vi.fn().mockResolvedValue('local:///recordings/covers/rec-1-newkey.jpg'),
+  deleteStoredFile: vi.fn().mockResolvedValue(undefined),
+  buildCoverImageUrl: vi.fn((id: string, key: string | null) => (key ? `https://livepodchat.com/api/recordings/${id}/cover?v=abc123abc123` : null)),
 }));
 
 vi.mock('../lib/socket.js', () => ({
@@ -404,6 +405,72 @@ describe('Recordings Routes', () => {
           take: 50,
         })
       );
+    });
+  });
+
+  describe('cover image endpoints', () => {
+    const OWNER = 'user-123'; // matches testToken's userId
+    const ownerToken = generateToken(OWNER, 'testuser');
+    const tinyJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]); // minimal JPEG bytes
+
+    it('owner uploads a cover -> 200 with coverImageUrl', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({ id: 'rec-1', ownerId: OWNER, coverImageKey: null });
+      mockPrisma.recording.update.mockResolvedValue({ id: 'rec-1', title: 'T', isPublic: false, shareSlug: null, coverImageKey: 'local:///recordings/covers/rec-1-newkey.jpg' });
+
+      const res = await request(app)
+        .post('/api/recordings/rec-1/cover')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .attach('image', tinyJpeg, { filename: 'c.jpg', contentType: 'image/jpeg' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.coverImageUrl).toContain('/api/recordings/rec-1/cover');
+    });
+
+    it('non-owner upload -> 403', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({ id: 'rec-1', ownerId: 'someone-else', coverImageKey: null });
+      const res = await request(app)
+        .post('/api/recordings/rec-1/cover')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .attach('image', tinyJpeg, { filename: 'c.jpg', contentType: 'image/jpeg' });
+      expect(res.status).toBe(403);
+    });
+
+    it('unsupported MIME -> 400', async () => {
+      const res = await request(app)
+        .post('/api/recordings/rec-1/cover')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .attach('image', Buffer.from('hello'), { filename: 'c.txt', contentType: 'text/plain' });
+      expect(res.status).toBe(400);
+    });
+
+    it('missing file -> 400', async () => {
+      const res = await request(app)
+        .post('/api/recordings/rec-1/cover')
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(res.status).toBe(400);
+    });
+
+    it('owner deletes cover -> 200 with coverImageUrl null', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({ id: 'rec-1', ownerId: OWNER, coverImageKey: 'local:///recordings/covers/old.jpg' });
+      mockPrisma.recording.update.mockResolvedValue({ id: 'rec-1', title: 'T', isPublic: false, shareSlug: null, coverImageKey: null });
+      const res = await request(app)
+        .delete('/api/recordings/rec-1/cover')
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.coverImageUrl).toBeNull();
+    });
+
+    it('GET cover with no key -> 404', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({ coverImageKey: null });
+      const res = await request(app).get('/api/recordings/rec-1/cover');
+      expect(res.status).toBe(404);
+    });
+
+    it('GET cover for an S3 key -> 302 redirect to presigned url', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({ coverImageKey: 'https://s3.example/podchat/covers/rec-1.jpg' });
+      const res = await request(app).get('/api/recordings/rec-1/cover');
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe('https://example.com/download/file.mp3');
     });
   });
 });

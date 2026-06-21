@@ -1,4 +1,5 @@
 import { Router, Response, Request } from 'express';
+import multer from 'multer';
 import { nanoid } from 'nanoid';
 import { access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
@@ -10,6 +11,9 @@ import {
   getPresignedDownloadUrl,
   isLocalRecordingUrl,
   verifyLocalRecordingAccessToken,
+  uploadImage,
+  deleteStoredFile,
+  buildCoverImageUrl,
 } from '../lib/storage.js';
 import { authMiddleware, AuthRequest, optionalAuthMiddleware } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -17,6 +21,24 @@ import { recordingUpdateSchema } from '../lib/validation.js';
 import { logError } from '../lib/logger.js';
 
 const router = Router();
+
+const ALLOWED_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const coverUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+function coverUploadMiddleware(req: Request, res: Response, next: (err?: unknown) => void) {
+  coverUpload.single('image')(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'Image too large (max 5MB)' });
+      }
+      return res.status(400).json({ message: 'Invalid upload' });
+    }
+    next();
+  });
+}
 
 async function buildRecordingAccessUrl(
   recordingId: string,
@@ -73,6 +95,127 @@ router.get('/:id/file', async (req: Request<{ id: string }>, res: Response) => {
       return res.status(404).json({ message: 'Recording file not available yet' });
     }
     logError(error as Error, { action: 'stream_local_recording' });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST /api/recordings/:id/cover - upload/replace cover image (owner only)
+router.post('/:id/cover', authMiddleware, coverUploadMiddleware, async (req: AuthRequest<{ id: string }>, res: Response) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ message: 'No image provided' });
+    }
+    if (!ALLOWED_IMAGE_MIME.has(file.mimetype)) {
+      return res.status(400).json({ message: 'Unsupported image type' });
+    }
+
+    const recording = await prisma.recording.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, coverImageKey: true },
+    });
+    if (!recording) {
+      return res.status(404).json({ message: 'Recording not found' });
+    }
+    if (recording.ownerId !== req.userId) {
+      return res.status(403).json({ message: 'Only the owner can update this recording' });
+    }
+
+    const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+    const key = `covers/${id}-${nanoid()}.${ext}`;
+    const storedUrl = await uploadImage(key, file.buffer, file.mimetype);
+
+    const updated = await prisma.recording.update({
+      where: { id },
+      data: { coverImageKey: storedUrl },
+    });
+
+    if (recording.coverImageKey && recording.coverImageKey !== storedUrl) {
+      await deleteStoredFile(recording.coverImageKey);
+    }
+
+    res.json({
+      id: updated.id,
+      title: updated.title,
+      isPublic: updated.isPublic,
+      shareSlug: updated.shareSlug,
+      coverImageUrl: buildCoverImageUrl(updated.id, updated.coverImageKey),
+    });
+  } catch (error) {
+    logError(error as Error, { action: 'upload_cover_image' });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/recordings/:id/cover - remove cover image (owner only)
+router.delete('/:id/cover', authMiddleware, async (req: AuthRequest<{ id: string }>, res: Response) => {
+  try {
+    const { id } = req.params;
+    const recording = await prisma.recording.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, coverImageKey: true },
+    });
+    if (!recording) {
+      return res.status(404).json({ message: 'Recording not found' });
+    }
+    if (recording.ownerId !== req.userId) {
+      return res.status(403).json({ message: 'Only the owner can update this recording' });
+    }
+
+    const updated = await prisma.recording.update({
+      where: { id },
+      data: { coverImageKey: null },
+    });
+
+    if (recording.coverImageKey) {
+      await deleteStoredFile(recording.coverImageKey);
+    }
+
+    res.json({
+      id: updated.id,
+      title: updated.title,
+      isPublic: updated.isPublic,
+      shareSlug: updated.shareSlug,
+      coverImageUrl: null,
+    });
+  } catch (error) {
+    logError(error as Error, { action: 'delete_cover_image' });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET /api/recordings/:id/cover - public cover image (no auth)
+router.get('/:id/cover', async (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const recording = await prisma.recording.findUnique({
+      where: { id: req.params.id },
+      select: { coverImageKey: true },
+    });
+    if (!recording?.coverImageKey) {
+      return res.status(404).json({ message: 'No cover image' });
+    }
+
+    const key = recording.coverImageKey;
+    if (isLocalRecordingUrl(key)) {
+      const localPath = getLocalRecordingPath(key);
+      await access(localPath, fsConstants.R_OK);
+      const ext = path.extname(localPath).toLowerCase();
+      const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return res.sendFile(localPath);
+    }
+
+    const url = new URL(key);
+    const objectKey = url.pathname.slice(1);
+    const signed = await getPresignedDownloadUrl(objectKey);
+    return res.redirect(302, signed);
+  } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') {
+      return res.status(404).json({ message: 'Cover image not available' });
+    }
+    logError(error as Error, { action: 'get_cover_image' });
     res.status(500).json({ message: 'Internal server error' });
   }
 });
