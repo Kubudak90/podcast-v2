@@ -18,6 +18,9 @@ vi.mock('../lib/prisma.js', () => ({
       findMany: vi.fn(),
       deleteMany: vi.fn(),
     },
+    recording: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -56,6 +59,9 @@ type MockedPrisma = typeof prisma & {
     findMany: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     deleteMany: ReturnType<typeof vi.fn>;
+  };
+  recording: {
+    findMany: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -275,6 +281,38 @@ describe('Users Routes', () => {
         id: 'following-1',
         username: 'following1',
       });
+    });
+  });
+
+  describe('GET /api/users/:userId/podcasts', () => {
+    const OWNER = '550e8400-e29b-41d4-a716-446655440001';
+
+    it('owner sees public + private drafts', async () => {
+      const token = generateToken(OWNER, 'owner');
+      mockPrisma.recording.findMany.mockResolvedValue([
+        { id: 'a', title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
+        { id: 'b', title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
+      ]);
+
+      const res = await request(app)
+        .get(`/api/users/${OWNER}/podcasts`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.podcasts).toHaveLength(2);
+      expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER });
+    });
+
+    it('a different requester sees only public', async () => {
+      const token = generateToken('550e8400-e29b-41d4-a716-446655440099', 'other');
+      mockPrisma.recording.findMany.mockResolvedValue([]);
+
+      const res = await request(app)
+        .get(`/api/users/${OWNER}/podcasts`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER, isPublic: true });
     });
   });
 });
