@@ -107,6 +107,7 @@ model Recording {
   id              String   @id @default(uuid())
   roomId          String
   ownerId         String?
+  coverImageKey   String?
   fileUrl         String
   title           String?  // Optional custom title for sharing
   shareSlug       String?  @unique // Unique slug for public sharing

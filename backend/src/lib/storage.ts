@@ -1,7 +1,9 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import path from 'node:path';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 const s3Client = new S3Client({
   region: 'auto',
@@ -99,4 +101,46 @@ export function createLocalRecordingAccessUrl(
 export function verifyLocalRecordingAccessToken(token: string): LocalRecordingTokenPayload {
   const payload = jwt.verify(token, JWT_SECRET) as LocalRecordingTokenPayload;
   return payload;
+}
+
+export function isS3Configured(): boolean {
+  return Boolean(process.env.S3_ENDPOINT);
+}
+
+// Stores an image in S3 when configured, otherwise on local disk under
+// LOCAL_RECORDINGS_DIR (e.g. covers/<id>-<nanoid>.jpg). Returns the stored
+// url/key to persist as Recording.coverImageKey.
+export async function uploadImage(key: string, body: Buffer, contentType: string): Promise<string> {
+  if (isS3Configured()) {
+    return uploadFile(key, body, contentType);
+  }
+  const fullPath = path.posix.join(LOCAL_RECORDINGS_DIR, key);
+  await mkdir(path.posix.dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, body);
+  return `local://${fullPath}`;
+}
+
+// Best-effort deletion of a previously stored image (local file or S3 object).
+export async function deleteStoredFile(storedUrl: string): Promise<void> {
+  try {
+    if (isLocalRecordingUrl(storedUrl)) {
+      await unlink(getLocalRecordingPath(storedUrl));
+      return;
+    }
+    const url = new URL(storedUrl);
+    const key = url.pathname.slice(1);
+    await s3Client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  } catch {
+    // best-effort: a missing file or delete error must not fail the request
+  }
+}
+
+// Builds the public, cache-busted cover URL exposed to clients, or null.
+export function buildCoverImageUrl(
+  recordingId: string,
+  coverImageKey: string | null | undefined
+): string | null {
+  if (!coverImageKey) return null;
+  const v = createHash('sha1').update(coverImageKey).digest('hex').slice(0, 12);
+  return `${FRONTEND_URL}/api/recordings/${recordingId}/cover?v=${v}`;
 }
