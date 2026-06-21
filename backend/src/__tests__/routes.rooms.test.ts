@@ -603,6 +603,19 @@ describe('Room Routes', () => {
       expect(response.body.status).toBe('ended');
     });
 
+    it('POST /:slug/end creates the recording with ownerId = host', async () => {
+      (prisma.room.findUnique as any).mockResolvedValue({ id: 'r1', slug: 'abc', hostId: 'user-123', egressId: 'eg1', recordingFileUrl: 'local:///recordings/abc.mp3', startedAt: new Date(Date.now() - 60000) });
+      const created = vi.fn().mockResolvedValue({});
+      (prisma.$transaction as any).mockImplementation(async (cb: any) => cb({
+        recording: { create: created },
+        room: { update: vi.fn().mockResolvedValue({ id: 'r1', slug: 'abc', title: 'T', hostId: 'user-123', status: 'ended', maxSpeakers: 10, isPublic: true, createdAt: new Date(), startedAt: new Date(), endedAt: new Date() }) },
+        roomParticipant: { updateMany: vi.fn() },
+      }));
+      const res = await request(app).post('/api/rooms/abc/end').set('Authorization', `Bearer ${validToken}`).send({});
+      expect(res.status).toBe(200);
+      expect(created).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'user-123', roomId: 'r1' }) });
+    });
+
     it('should reject non-host from ending room', async () => {
       const mockRoom = {
         id: 'room-123',

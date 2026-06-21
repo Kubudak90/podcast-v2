@@ -475,7 +475,7 @@ router.post('/:slug/end', async (req: AuthRequest<{ slug: string }>, res: Respon
     }
 
     // Stop recording if active and prepare recording data
-    let recordingData: { roomId: string; fileUrl: string; durationSeconds: number | null; format: string } | null = null;
+    let recordingData: { roomId: string; ownerId: string; fileUrl: string; durationSeconds: number | null; format: string } | null = null;
     if (room.egressId) {
       try {
         await stopRoomRecording(room.egressId);
@@ -490,6 +490,7 @@ router.post('/:slug/end', async (req: AuthRequest<{ slug: string }>, res: Respon
         if (room.recordingFileUrl) {
           recordingData = {
             roomId: room.id,
+            ownerId: room.hostId,
             fileUrl: room.recordingFileUrl,
             durationSeconds,
             // Room composite egress writes an MP4 container (see startRoomRecording).
