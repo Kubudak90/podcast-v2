@@ -16,6 +16,7 @@ vi.mock('../lib/prisma.js', () => ({
       findMany: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
+      create: vi.fn(),
     },
     roomParticipant: {
       findFirst: vi.fn(),
@@ -35,6 +36,9 @@ vi.mock('../lib/storage.js', () => ({
   uploadImage: vi.fn().mockResolvedValue('local:///recordings/covers/rec-1-newkey.jpg'),
   deleteStoredFile: vi.fn().mockResolvedValue(undefined),
   buildCoverImageUrl: vi.fn((id: string, key: string | null) => (key ? `https://livepodchat.com/api/recordings/${id}/cover?v=abc123abc123` : null)),
+  audioExtForMime: vi.fn((m: string) => (({ 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac' } as Record<string, string>)[m] ?? null)),
+  UPLOADS_DIR: '/tmp/podchat-b3-test-uploads',
+  storeUploadedAudio: vi.fn().mockResolvedValue('local:///tmp/podchat-b3-test-uploads/abc.mp3'),
 }));
 
 vi.mock('../lib/socket.js', () => ({
@@ -73,6 +77,7 @@ type MockedPrisma = typeof prisma & {
     findMany: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
   };
   roomParticipant: {
     findFirst: ReturnType<typeof vi.fn>;
@@ -498,6 +503,53 @@ describe('Recordings Routes', () => {
       const res = await request(app).get('/api/recordings/rec-1/cover');
       expect(res.status).toBe(302);
       expect(res.headers.location).toBe('https://example.com/download/file.mp3');
+    });
+  });
+
+  describe('POST /api/recordings/upload', () => {
+    const UPLOADER = 'user-123'; // matches testToken's userId
+    const uploaderToken = generateToken(UPLOADER, 'testuser');
+    const tinyAudio = Buffer.from([0x49, 0x44, 0x33, 0x04]); // "ID3" mp3-ish header bytes
+
+    it('uploads an audio file -> 201 draft recording owned by the uploader, roomId null', async () => {
+      mockPrisma.recording.create.mockResolvedValue({
+        id: 'rec-up-1', ownerId: UPLOADER, roomId: null, title: 'My Pod', isPublic: false,
+        shareSlug: null, durationSeconds: 120, coverImageKey: null, format: 'mp3',
+        createdAt: new Date('2024-02-01'),
+      });
+
+      const res = await request(app)
+        .post('/api/recordings/upload')
+        .set('Authorization', `Bearer ${uploaderToken}`)
+        .field('title', 'My Pod')
+        .field('durationSeconds', '120')
+        .attach('audio', tinyAudio, { filename: 'pod.mp3', contentType: 'audio/mpeg' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ id: 'rec-up-1', ownerId: UPLOADER, isPublic: false, title: 'My Pod' });
+      const createArg = mockPrisma.recording.create.mock.calls[0][0].data;
+      expect(createArg.roomId).toBeNull();
+      expect(createArg.ownerId).toBe(UPLOADER);
+      expect(createArg.format).toBe('mp3');
+      expect(createArg.isPublic).toBe(false);
+    });
+
+    it('rejects an unsupported file type -> 400 and does not create a recording', async () => {
+      const res = await request(app)
+        .post('/api/recordings/upload')
+        .set('Authorization', `Bearer ${uploaderToken}`)
+        .field('title', 'x')
+        .attach('audio', Buffer.from('hello'), { filename: 'x.txt', contentType: 'text/plain' });
+
+      expect(res.status).toBe(400);
+      expect(mockPrisma.recording.create).not.toHaveBeenCalled();
+    });
+
+    it('requires auth -> 401', async () => {
+      const res = await request(app)
+        .post('/api/recordings/upload')
+        .attach('audio', tinyAudio, { filename: 'pod.mp3', contentType: 'audio/mpeg' });
+      expect(res.status).toBe(401);
     });
   });
 });

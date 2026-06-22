@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import multer from 'multer';
 import { nanoid } from 'nanoid';
-import { access } from 'node:fs/promises';
+import { access, mkdir, unlink } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import { prisma } from '../lib/prisma.js';
@@ -14,6 +14,9 @@ import {
   uploadImage,
   deleteStoredFile,
   buildCoverImageUrl,
+  UPLOADS_DIR,
+  storeUploadedAudio,
+  audioExtForMime,
 } from '../lib/storage.js';
 import { authMiddleware, AuthRequest, optionalAuthMiddleware } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -40,6 +43,37 @@ function coverUploadMiddleware(req: Request, res: Response, next: (err?: unknown
   });
 }
 
+const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
+const audioUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      mkdir(UPLOADS_DIR, { recursive: true })
+        .then(() => cb(null, UPLOADS_DIR))
+        .catch((e) => cb(e as Error, UPLOADS_DIR));
+    },
+    filename: (_req, file, cb) => {
+      const ext = audioExtForMime(file.mimetype) ?? 'mp3';
+      cb(null, `${nanoid()}.${ext}`);
+    },
+  }),
+  limits: { fileSize: MAX_AUDIO_BYTES },
+  fileFilter: (_req, file, cb) => {
+    cb(null, audioExtForMime(file.mimetype) !== null);
+  },
+});
+
+function audioUploadMiddleware(req: Request, res: Response, next: (err?: unknown) => void) {
+  audioUpload.single('audio')(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'Audio too large (max 200MB)' });
+      }
+      return res.status(400).json({ message: 'Invalid upload' });
+    }
+    next();
+  });
+}
+
 async function buildRecordingAccessUrl(
   recordingId: string,
   fileUrl: string,
@@ -55,6 +89,56 @@ async function buildRecordingAccessUrl(
   const key = url.pathname.slice(1);
   return getPresignedDownloadUrl(key);
 }
+
+// POST /api/recordings/upload - create a podcast from an uploaded audio file (owner only)
+router.post('/upload', authMiddleware, audioUploadMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ message: 'No valid audio file (mp3/m4a/aac, max 200MB)' });
+    }
+    const ext = audioExtForMime(file.mimetype);
+    if (!ext) {
+      await unlink(file.path).catch(() => {});
+      return res.status(400).json({ message: 'Unsupported audio format' });
+    }
+
+    const key = `uploads/${path.basename(file.path)}`;
+    const fileUrl = await storeUploadedAudio(file.path, key, file.mimetype);
+
+    const titleRaw = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+    const fallbackTitle = file.originalname.replace(/\.[^/.]+$/, '') || 'Adsız podcast';
+    const durationRaw = Number(req.body.durationSeconds);
+    const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0 ? Math.floor(durationRaw) : null;
+
+    const recording = await prisma.recording.create({
+      data: {
+        roomId: null,
+        ownerId: req.userId!,
+        fileUrl,
+        title: titleRaw || fallbackTitle,
+        durationSeconds,
+        fileSizeBytes: BigInt(file.size),
+        format: ext,
+        isPublic: false,
+      },
+    });
+
+    res.status(201).json({
+      id: recording.id,
+      ownerId: recording.ownerId,
+      title: recording.title,
+      isPublic: recording.isPublic,
+      shareSlug: recording.shareSlug,
+      durationSeconds: recording.durationSeconds,
+      coverImageUrl: null,
+      createdAt: recording.createdAt.toISOString(),
+    });
+  } catch (error) {
+    logError(error as Error, { action: 'upload_audio_recording' });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 // GET /api/recordings/:id/file - Stream/download local recording via signed token
 router.get('/:id/file', async (req: Request<{ id: string }>, res: Response) => {
@@ -81,11 +165,12 @@ router.get('/:id/file', async (req: Request<{ id: string }>, res: Response) => {
     await access(localPath, fsConstants.R_OK);
 
     const extension = path.extname(localPath).toLowerCase();
-    const contentType = extension === '.mp4'
-      ? 'audio/mp4'
-      : extension === '.mp3'
-        ? 'audio/mpeg'
-        : 'application/octet-stream';
+    const contentType =
+      extension === '.mp4' ? 'audio/mp4'
+      : extension === '.m4a' ? 'audio/mp4'
+      : extension === '.aac' ? 'audio/aac'
+      : extension === '.mp3' ? 'audio/mpeg'
+      : 'application/octet-stream';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `${payload.disposition}; filename="${path.basename(localPath)}"`);
