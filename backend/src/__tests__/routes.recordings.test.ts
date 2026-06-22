@@ -552,4 +552,37 @@ describe('Recordings Routes', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe('GET /api/recordings/:id/download (room-less upload auth)', () => {
+    const OWNER = 'user-123'; // matches testToken
+
+    it('owner of a room-less recording gets a download url -> 200', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({
+        id: 'rec-up', ownerId: OWNER, roomId: null, fileUrl: 'local:///recordings/uploads/x.mp3', room: null,
+      });
+
+      const res = await request(app)
+        .get('/api/recordings/rec-up/download')
+        .set('Authorization', `Bearer ${testToken}`);
+
+      expect(res.status).toBe(200);
+      expect(typeof res.body.url).toBe('string');
+      // owner short-circuits before any participant lookup
+      expect(mockPrisma.roomParticipant.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('non-owner of a room-less recording is denied -> 403', async () => {
+      mockPrisma.recording.findUnique.mockResolvedValue({
+        id: 'rec-up', ownerId: 'someone-else', roomId: null, fileUrl: 'local:///recordings/uploads/x.mp3', room: null,
+      });
+
+      const res = await request(app)
+        .get('/api/recordings/rec-up/download')
+        .set('Authorization', `Bearer ${testToken}`);
+
+      expect(res.status).toBe(403);
+      // a null room means no participant query is even attempted
+      expect(mockPrisma.roomParticipant.findFirst).not.toHaveBeenCalled();
+    });
+  });
 });
