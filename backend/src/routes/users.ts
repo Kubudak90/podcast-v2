@@ -240,7 +240,7 @@ router.get('/:userId/podcasts', async (req: AuthRequest<{ userId: string }>, res
         id: r.id,
         ownerId: r.ownerId,
         coverImageUrl: buildCoverImageUrl(r.id, r.coverImageKey),
-        title: r.title || r.room.title,
+        title: r.title || r.room?.title || 'Adsız podcast',
         isPublic: r.isPublic,
         shareSlug: r.shareSlug,
         durationSeconds: r.durationSeconds,

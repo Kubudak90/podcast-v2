@@ -239,16 +239,23 @@ router.get('/:id/download', authMiddleware, async (req: AuthRequest<{ id: string
       return res.status(404).json({ message: 'Recording not found' });
     }
 
-    // Check if user was a participant in this room
-    const participant = await prisma.roomParticipant.findFirst({
-      where: {
-        roomId: recording.room.id,
-        userId: req.userId!,
-      },
-    });
+    // Owner may always download (covers uploaded, room-less recordings).
+    if (recording.ownerId !== req.userId) {
+      // Otherwise fall back to room-based authorization: the requester must have
+      // been a participant in the recording's room. A room-less recording has no
+      // room, so non-owners are denied.
+      const participant = recording.room
+        ? await prisma.roomParticipant.findFirst({
+            where: {
+              roomId: recording.room.id,
+              userId: req.userId!,
+            },
+          })
+        : null;
 
-    if (!participant) {
-      return res.status(403).json({ message: 'You do not have permission to download this recording' });
+      if (!participant) {
+        return res.status(403).json({ message: 'You do not have permission to download this recording' });
+      }
     }
 
     const url = await buildRecordingAccessUrl(recording.id, recording.fileUrl, disposition);
@@ -331,6 +338,7 @@ router.get('/public/:shareSlug', optionalAuthMiddleware, async (req: AuthRequest
             },
           },
         },
+        owner: { select: { id: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -346,18 +354,16 @@ router.get('/public/:shareSlug', optionalAuthMiddleware, async (req: AuthRequest
 
     res.json({
       id: recording.id,
-      title: recording.title || recording.room.title,
+      title: recording.title || recording.room?.title || 'Adsız podcast',
       description: recording.description,
       durationSeconds: recording.durationSeconds,
       playCount: recording.playCount + 1,
       createdAt: recording.createdAt.toISOString(),
       coverImageUrl: buildCoverImageUrl(recording.id, recording.coverImageKey),
-      room: {
-        id: recording.room.id,
-        slug: recording.room.slug,
-        title: recording.room.title,
-      },
-      host: recording.room.host,
+      room: recording.room ? { id: recording.room.id, slug: recording.room.slug, title: recording.room.title } : null,
+      host: recording.owner
+        ? { id: recording.owner.id, username: recording.owner.username, avatarUrl: recording.owner.avatarUrl }
+        : (recording.room?.host ?? null),
     });
   } catch (error) {
     logError(error as Error, { action: 'get_public_recording' });
@@ -407,6 +413,7 @@ router.get('/feed', optionalAuthMiddleware, async (req: AuthRequest, res: Respon
               },
             },
           },
+          owner: { select: { id: true, username: true, avatarUrl: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: limit,
@@ -418,19 +425,17 @@ router.get('/feed', optionalAuthMiddleware, async (req: AuthRequest, res: Respon
     res.json({
       recordings: recordings.map((r: typeof recordings[number]) => ({
         id: r.id,
-        title: r.title || r.room.title,
+        title: r.title || r.room?.title || 'Adsız podcast',
         description: r.description,
         shareSlug: r.shareSlug,
         durationSeconds: r.durationSeconds,
         playCount: r.playCount,
         createdAt: r.createdAt.toISOString(),
         coverImageUrl: buildCoverImageUrl(r.id, r.coverImageKey),
-        room: {
-          id: r.room.id,
-          slug: r.room.slug,
-          title: r.room.title,
-        },
-        host: r.room.host,
+        room: r.room ? { id: r.room.id, slug: r.room.slug, title: r.room.title } : null,
+        host: r.owner
+          ? { id: r.owner.id, username: r.owner.username, avatarUrl: r.owner.avatarUrl }
+          : (r.room?.host ?? null),
       })),
       total,
       limit,

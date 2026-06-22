@@ -383,6 +383,25 @@ describe('Recordings Routes', () => {
       expect(response.body.recordings[1].coverImageUrl).toBeNull();
     });
 
+    it('serializes a room-less (uploaded) recording, deriving host from the owner', async () => {
+      mockPrisma.recording.findMany.mockResolvedValue([
+        {
+          id: 'rec-up', title: 'Uploaded Pod', description: null, shareSlug: 'up1',
+          durationSeconds: 100, playCount: 0, createdAt: new Date('2024-02-02'),
+          coverImageKey: null, room: null,
+          owner: { id: 'user-9', username: 'uploader', avatarUrl: null },
+        },
+      ]);
+      mockPrisma.recording.count.mockResolvedValue(1);
+
+      const res = await request(app).get('/api/recordings/feed');
+
+      expect(res.status).toBe(200);
+      expect(res.body.recordings[0].title).toBe('Uploaded Pod');
+      expect(res.body.recordings[0].room).toBeNull();
+      expect(res.body.recordings[0].host).toMatchObject({ id: 'user-9', username: 'uploader' });
+    });
+
     it('should support pagination', async () => {
       mockPrisma.recording.findMany.mockResolvedValue([]);
       mockPrisma.recording.count.mockResolvedValue(50);
