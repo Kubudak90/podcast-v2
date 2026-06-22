@@ -105,7 +105,7 @@ model SpeakerRequest {
 
 model Recording {
   id              String   @id @default(uuid())
-  roomId          String
+  roomId          String?
   ownerId         String?
   coverImageKey   String?
   fileUrl         String
@@ -120,7 +120,7 @@ model Recording {
   createdAt       DateTime @default(now())
 
   // Relations
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
   owner User? @relation("OwnedRecordings", fields: [ownerId], references: [id], onDelete: Cascade)
 
   // Indexes for common queries

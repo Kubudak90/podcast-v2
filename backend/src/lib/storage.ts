@@ -2,7 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import path from 'node:path';
-import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, unlink, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
 const s3Client = new S3Client({
@@ -143,4 +143,32 @@ export function buildCoverImageUrl(
   if (!coverImageKey) return null;
   const v = createHash('sha1').update(coverImageKey).digest('hex').slice(0, 12);
   return `${FRONTEND_URL}/api/recordings/${recordingId}/cover?v=${v}`;
+}
+
+// Audio uploads (B3): allowed MIME -> stored file extension.
+const ALLOWED_AUDIO_MIME: Record<string, string> = {
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/aac': 'aac',
+};
+
+export function audioExtForMime(mime: string): string | null {
+  return ALLOWED_AUDIO_MIME[mime] ?? null;
+}
+
+// Directory multer disk-storage writes uploaded audio into (local mode).
+export const UPLOADS_DIR = path.posix.join(LOCAL_RECORDINGS_DIR, 'uploads');
+
+// Finalizes a multer-written temp audio file into permanent storage.
+// Local mode: multer already wrote it under UPLOADS_DIR -> return its local:// URL.
+// S3 mode: read it, upload to S3, remove the temp file -> return the S3 URL.
+export async function storeUploadedAudio(tempPath: string, key: string, contentType: string): Promise<string> {
+  if (isS3Configured()) {
+    const buf = await readFile(tempPath);
+    const url = await uploadFile(key, buf, contentType);
+    await unlink(tempPath);
+    return url;
+  }
+  return `local://${tempPath}`;
 }
