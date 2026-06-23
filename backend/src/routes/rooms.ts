@@ -11,6 +11,7 @@ import { startRoomRecording, stopRoomRecording, setParticipantCanPublish, remove
 import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate, emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved } from '../lib/socket.js';
 import { logRecording, logError } from '../lib/logger.js';
 import { notifyFollowersOfLive } from '../lib/push.js';
+import { blockedUserIds } from '../lib/blocks.js';
 
 const router = Router();
 
@@ -234,6 +235,11 @@ router.post('/:slug/join', validate(joinRoomSchema), async (req: AuthRequest<{ s
 
     if (room.status === 'ended') {
       return res.status(400).json({ message: 'Room has ended' });
+    }
+
+    const blocked = await blockedUserIds(req.userId!);
+    if (blocked.includes(room.hostId)) {
+      return res.status(403).json({ message: 'You cannot join this room' });
     }
 
     // Check password for private rooms (skip if host)

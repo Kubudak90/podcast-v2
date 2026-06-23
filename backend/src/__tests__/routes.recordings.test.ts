@@ -21,6 +21,11 @@ vi.mock('../lib/prisma.js', () => ({
     roomParticipant: {
       findFirst: vi.fn(),
     },
+    block: {
+      findMany: vi.fn(),
+      upsert: vi.fn(),
+      deleteMany: vi.fn(),
+    },
   },
 }));
 
@@ -82,6 +87,11 @@ type MockedPrisma = typeof prisma & {
   roomParticipant: {
     findFirst: ReturnType<typeof vi.fn>;
   };
+  block: {
+    findMany: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
+    deleteMany: ReturnType<typeof vi.fn>;
+  };
 };
 
 describe('Recordings Routes', () => {
@@ -91,6 +101,7 @@ describe('Recordings Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.block.findMany.mockResolvedValue([]);
   });
 
   describe('GET /api/rooms/:slug/recordings', () => {
@@ -436,6 +447,30 @@ describe('Recordings Routes', () => {
         expect.objectContaining({
           take: 50,
         })
+      );
+    });
+
+    it('excludes hidden recordings and blocked owners for an authed viewer', async () => {
+      // Viewer (user-123) blocked baduser; helper returns ['baduser'].
+      mockPrisma.block.findMany.mockResolvedValue([{ blockerId: 'user-123', blockedId: 'baduser' }]);
+      mockPrisma.recording.findMany.mockResolvedValue([]);
+      mockPrisma.recording.count.mockResolvedValue(0);
+
+      const res = await request(app)
+        .get('/api/recordings/feed')
+        .set('Authorization', `Bearer ${testToken}`);
+
+      expect(res.status).toBe(200);
+      const expectedWhere = expect.objectContaining({
+        isPublic: true,
+        isHidden: false,
+        ownerId: { notIn: ['baduser'] },
+      });
+      expect(mockPrisma.recording.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere })
+      );
+      expect(mockPrisma.recording.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere })
       );
     });
   });

@@ -28,6 +28,11 @@ vi.mock('../lib/prisma.js', () => {
     create: vi.fn(),
     update: vi.fn(),
   };
+  const blockMock = {
+    findMany: vi.fn(),
+    upsert: vi.fn(),
+    deleteMany: vi.fn(),
+  };
 
   return {
     prisma: {
@@ -44,6 +49,7 @@ vi.mock('../lib/prisma.js', () => {
       roomParticipant: roomParticipantMock,
       recording: recordingMock,
       speakerRequest: speakerRequestMock,
+      block: blockMock,
       chatMessage: {
         findMany: vi.fn(),
         create: vi.fn(),
@@ -101,6 +107,7 @@ type MockedPrisma = {
   room: { findUnique: MockFn; create: MockFn; update: MockFn };
   roomParticipant: { findUnique: MockFn; findFirst: MockFn; findMany: MockFn; create: MockFn; update: MockFn; updateMany: MockFn; count: MockFn };
   speakerRequest: { findMany: MockFn; updateMany: MockFn };
+  block: { findMany: MockFn; upsert: MockFn; deleteMany: MockFn };
   $transaction: MockFn;
 };
 
@@ -111,6 +118,7 @@ describe('Room Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.block.findMany.mockResolvedValue([]);
   });
 
   describe('POST /api/rooms', () => {
@@ -820,6 +828,20 @@ describe('Room Routes', () => {
       const res = await request(app).post('/api/rooms/abc/join')
         .set('Authorization', `Bearer ${validToken}`).send({});
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('POST /api/rooms/:slug/join block guard', () => {
+    it('POST /join rejects when the host is in the blocked set -> 403', async () => {
+      (prisma.room.findUnique as any).mockResolvedValue({ id: 'r1', slug: 'abc', status: 'live', password: null, hostId: 'host-x' });
+      // Viewer (user-123) and host-x are mutually blocked; helper returns ['host-x'].
+      mockPrisma.block.findMany.mockResolvedValue([{ blockerId: 'host-x', blockedId: 'user-123' }]);
+      const res = await request(app).post('/api/rooms/abc/join')
+        .set('Authorization', `Bearer ${validToken}`).send({});
+      expect(res.status).toBe(403);
+      expect(res.body.message).toBe('You cannot join this room');
+      // Should not proceed to participant lookup.
+      expect(prisma.roomParticipant.findUnique).not.toHaveBeenCalled();
     });
   });
 });

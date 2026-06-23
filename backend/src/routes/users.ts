@@ -4,6 +4,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { logError } from '../lib/logger.js';
 import { notifyNewFollower } from '../lib/push.js';
 import { buildCoverImageUrl } from '../lib/storage.js';
+import { blockedUserIds } from '../lib/blocks.js';
 
 const router = Router();
 
@@ -226,7 +227,11 @@ router.get('/:userId/podcasts', async (req: AuthRequest<{ userId: string }>, res
     const { userId } = req.params;
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
     const isOwner = req.userId === userId;
-    const where = isOwner ? { ownerId: userId } : { ownerId: userId, isPublic: true };
+    if (!isOwner && req.userId) {
+      const blocked = await blockedUserIds(req.userId);
+      if (blocked.includes(userId)) return res.json({ podcasts: [] });
+    }
+    const where = isOwner ? { ownerId: userId } : { ownerId: userId, isPublic: true, isHidden: false };
 
     const recordings = await prisma.recording.findMany({
       where,

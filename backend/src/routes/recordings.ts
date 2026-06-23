@@ -21,6 +21,7 @@ import {
 import { authMiddleware, AuthRequest, optionalAuthMiddleware } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { recordingUpdateSchema } from '../lib/validation.js';
+import { blockedUserIds } from '../lib/blocks.js';
 import { logError } from '../lib/logger.js';
 
 const router = Router();
@@ -427,7 +428,8 @@ router.get('/public/:shareSlug', optionalAuthMiddleware, async (req: AuthRequest
       },
     });
 
-    if (!recording || !recording.isPublic) {
+    const blocked = req.userId ? await blockedUserIds(req.userId) : [];
+    if (!recording || !recording.isPublic || recording.isHidden || (recording.ownerId && blocked.includes(recording.ownerId))) {
       return res.status(404).json({ message: 'Recording not found' });
     }
 
@@ -483,10 +485,11 @@ router.get('/feed', optionalAuthMiddleware, async (req: AuthRequest, res: Respon
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 50);
     const offset = Number(req.query.offset) || 0;
+    const blocked = req.userId ? await blockedUserIds(req.userId) : [];
 
     const [recordings, total] = await Promise.all([
       prisma.recording.findMany({
-        where: { isPublic: true },
+        where: { isPublic: true, isHidden: false, ...(blocked.length ? { ownerId: { notIn: blocked } } : {}) },
         include: {
           room: {
             select: {
@@ -504,7 +507,7 @@ router.get('/feed', optionalAuthMiddleware, async (req: AuthRequest, res: Respon
         take: limit,
         skip: offset,
       }),
-      prisma.recording.count({ where: { isPublic: true } }),
+      prisma.recording.count({ where: { isPublic: true, isHidden: false, ...(blocked.length ? { ownerId: { notIn: blocked } } : {}) } }),
     ]);
 
     res.json({

@@ -21,6 +21,11 @@ vi.mock('../lib/prisma.js', () => ({
     recording: {
       findMany: vi.fn(),
     },
+    block: {
+      findMany: vi.fn(),
+      upsert: vi.fn(),
+      deleteMany: vi.fn(),
+    },
   },
 }));
 
@@ -64,6 +69,11 @@ type MockedPrisma = typeof prisma & {
   recording: {
     findMany: ReturnType<typeof vi.fn>;
   };
+  block: {
+    findMany: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
+    deleteMany: ReturnType<typeof vi.fn>;
+  };
 };
 
 describe('Users Routes', () => {
@@ -73,6 +83,7 @@ describe('Users Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.block.findMany.mockResolvedValue([]);
   });
 
   describe('GET /api/users/:userId', () => {
@@ -318,7 +329,21 @@ describe('Users Routes', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(200);
-      expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER, isPublic: true });
+      expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER, isPublic: true, isHidden: false });
+    });
+
+    it('returns [] when the requester has blocked the target', async () => {
+      const VIEWER = '550e8400-e29b-41d4-a716-446655440099';
+      const token = generateToken(VIEWER, 'other');
+      mockPrisma.block.findMany.mockResolvedValue([{ blockerId: VIEWER, blockedId: OWNER }]);
+
+      const res = await request(app)
+        .get(`/api/users/${OWNER}/podcasts`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.podcasts).toEqual([]);
+      expect(mockPrisma.recording.findMany).not.toHaveBeenCalled();
     });
   });
 });
