@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import type { ParamsDictionary, Query } from 'express-serve-static-core';
 import jwt from 'jsonwebtoken';
+import { prisma } from '../lib/prisma.js';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -46,6 +47,13 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
   } catch {
     return res.status(401).json({ message: 'Unauthorized: Invalid token' });
   }
+}
+
+export async function banGuard(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.userId) return next();
+  const u = await prisma.user.findUnique({ where: { id: req.userId }, select: { isBanned: true } });
+  if (u?.isBanned) return res.status(403).json({ message: 'Account suspended' });
+  next();
 }
 
 export function generateToken(userId: string, username: string): string {

@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, banGuard, AuthRequest } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
 import { roomCreateLimiter } from '../middleware/rateLimit.js';
 import { createRoomSchema, changeRoleSchema, joinRoomSchema, roomListQuerySchema, participantActionSchema } from '../lib/validation.js';
@@ -100,7 +100,7 @@ router.get('/', validateQuery(roomListQuerySchema), async (req: AuthRequest, res
 router.use(authMiddleware);
 
 // POST /api/rooms - Create room
-router.post('/', roomCreateLimiter, validate(createRoomSchema), async (req: AuthRequest, res: Response) => {
+router.post('/', roomCreateLimiter, banGuard, validate(createRoomSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { title, isPublic = true, maxSpeakers = 10, password } = req.body;
 
@@ -220,7 +220,7 @@ router.get('/:slug', async (req: AuthRequest<{ slug: string }>, res: Response) =
 });
 
 // POST /api/rooms/:slug/join - Join room
-router.post('/:slug/join', validate(joinRoomSchema), async (req: AuthRequest<{ slug: string }>, res: Response) => {
+router.post('/:slug/join', banGuard, validate(joinRoomSchema), async (req: AuthRequest<{ slug: string }>, res: Response) => {
   try {
     const { slug } = req.params;
     const { password } = req.body;

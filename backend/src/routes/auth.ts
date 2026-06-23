@@ -7,6 +7,7 @@ import { validate } from '../middleware/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { registerSchema, loginSchema, oauthSchema, updateProfileSchema } from '../lib/validation.js';
 import { logAuth, logError } from '../lib/logger.js';
+import { deleteStoredFile } from '../lib/storage.js';
 
 const router = Router();
 const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || '';
@@ -330,6 +331,33 @@ router.patch('/profile', authMiddleware, validate(updateProfileSchema), async (r
     res.json(formatUser(user));
   } catch (error) {
     logError(error as Error, { action: 'profile_update', userId: req.userId });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/auth/me - permanently delete the account + owned data
+router.delete('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!;
+    // best-effort remove stored files for recordings this user owns
+    const recs = await prisma.recording.findMany({
+      where: { ownerId: userId },
+      select: { fileUrl: true, coverImageKey: true },
+    });
+    for (const r of recs) {
+      if (r.fileUrl) await deleteStoredFile(r.fileUrl).catch(() => {});
+      if (r.coverImageKey) await deleteStoredFile(r.coverImageKey).catch(() => {});
+    }
+    await prisma.$transaction(async (tx) => {
+      // hosted rooms: deleting cascades their participants + chat messages; their
+      // recordings' roomId becomes null (SetNull) and stay owned by the user...
+      await tx.room.deleteMany({ where: { hostId: userId } });
+      // ...then deleting the user cascades owned recordings, follows, reports, blocks, subscriptions.
+      await tx.user.delete({ where: { id: userId } });
+    });
+    res.json({ message: 'Account deleted' });
+  } catch (error) {
+    logError(error as Error, { action: 'delete_account', userId: req.userId });
     res.status(500).json({ message: 'Internal server error' });
   }
 });

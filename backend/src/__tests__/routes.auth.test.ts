@@ -10,11 +10,13 @@ vi.mock('../lib/prisma.js', () => ({
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
     },
     room: {
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      deleteMany: vi.fn(),
     },
     roomParticipant: {
       findUnique: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock('../lib/livekit.js', () => ({
 
 vi.mock('../lib/storage.js', () => ({
   getPresignedDownloadUrl: vi.fn().mockResolvedValue('https://example.com/download'),
+  deleteStoredFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../lib/socket.js', () => ({
@@ -66,7 +69,12 @@ type MockedPrisma = typeof prisma & {
     findFirst: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
   };
+  recording: {
+    findMany: ReturnType<typeof vi.fn>;
+  };
+  $transaction: ReturnType<typeof vi.fn>;
 };
 
 describe('Auth Routes', () => {
@@ -257,6 +265,20 @@ describe('Auth Routes', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe('DELETE /api/auth/me', () => {
+    const token = generateToken('user-123', 'testuser');
+
+    it('DELETE /me deletes hosted rooms then the user', async () => {
+      mockPrisma.recording.findMany.mockResolvedValue([]);
+      const tx = { room: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) }, user: { delete: vi.fn().mockResolvedValue({ id: 'user-123' }) } };
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(tx));
+      const res = await request(app).delete('/api/auth/me').set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(tx.room.deleteMany).toHaveBeenCalledWith({ where: { hostId: 'user-123' } });
+      expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-123' } });
     });
   });
 

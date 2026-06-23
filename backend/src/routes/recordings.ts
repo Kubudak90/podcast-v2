@@ -18,7 +18,7 @@ import {
   storeUploadedAudio,
   audioExtForMime,
 } from '../lib/storage.js';
-import { authMiddleware, AuthRequest, optionalAuthMiddleware } from '../middleware/auth.js';
+import { authMiddleware, banGuard, AuthRequest, optionalAuthMiddleware } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { recordingUpdateSchema } from '../lib/validation.js';
 import { blockedUserIds } from '../lib/blocks.js';
@@ -92,7 +92,7 @@ async function buildRecordingAccessUrl(
 }
 
 // POST /api/recordings/upload - create a podcast from an uploaded audio file (owner only)
-router.post('/upload', authMiddleware, audioUploadMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/upload', authMiddleware, banGuard, audioUploadMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const file = req.file;
     if (!file) {
