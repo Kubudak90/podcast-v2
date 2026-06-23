@@ -121,7 +121,9 @@ services:
       livekit:
         condition: service_started
     volumes:
-      - recordings_data:/recordings:ro
+      # rw (not :ro): the backend writes user uploads + cover images here (B3/B2),
+      # in addition to serving room recordings written by egress.
+      - recordings_data:/recordings
     networks:
       - podchat-network
 
