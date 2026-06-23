@@ -56,6 +56,13 @@ export async function banGuard(req: AuthRequest, res: Response, next: NextFuncti
   next();
 }
 
+export async function adminGuard(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.userId) return res.status(401).json({ message: 'Unauthorized' });
+  const u = await prisma.user.findUnique({ where: { id: req.userId }, select: { isAdmin: true } });
+  if (!u?.isAdmin) return res.status(403).json({ message: 'Forbidden' });
+  next();
+}
+
 export function generateToken(userId: string, username: string): string {
   return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '30d' });
 }

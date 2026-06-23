@@ -10,6 +10,8 @@ import usersRoutes from './routes/users.js';
 import notificationsRoutes from './routes/notifications.js';
 import reportsRoutes from './routes/reports.js';
 import blocksRoutes from './routes/blocks.js';
+import adminRoutes from './routes/admin.js';
+import legalRoutes from './routes/legal.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { logError } from './lib/logger.js';
 
@@ -58,6 +60,9 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/rooms', roomsRoutes);
   app.use('/api/recordings', recordingsRoutes);
+  // Legal pages are public — mount before the catch-all chatRoutes (which applies
+  // authMiddleware to the whole /api mount) so /api/legal/* stays unauthenticated.
+  app.use('/api/legal', legalRoutes);
   // Per-room recordings (/api/rooms/:slug/recordings) is served by roomsRoutes.
   app.use('/api', chatRoutes); // For /api/rooms/:slug/chat path
   app.use('/api/livekit', livekitRoutes);
@@ -65,6 +70,7 @@ export function createApp() {
   app.use('/api/notifications', notificationsRoutes);
   app.use('/api/reports', reportsRoutes);
   app.use('/api/blocks', blocksRoutes);
+  app.use('/api/admin', adminRoutes);
 
   // Error handler
   app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
