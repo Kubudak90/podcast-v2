@@ -82,6 +82,18 @@ export const roomListQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['live', 'waiting']).optional(),
 });
 
+// Moderation (B4)
+export const reportSchema = z.object({
+  targetType: z.enum(['recording', 'room', 'message', 'user']),
+  targetId: z.string().min(1, 'targetId is required').max(200),
+  reason: z.enum(['spam', 'harassment', 'hate', 'sexual', 'other']),
+  note: z.string().max(500).optional(),
+});
+
+export const blockSchema = z.object({
+  blockedId: z.string().min(1, 'blockedId is required').max(200),
+});
+
 // Type exports
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
