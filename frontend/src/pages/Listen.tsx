@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Avatar } from '../components/UI';
+import { ReportDialog } from '../components/ReportDialog';
 import type { PublicRecording } from '../types';
 
 export function Listen() {
@@ -16,6 +17,7 @@ export function Listen() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [showReport, setShowReport] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -182,7 +184,7 @@ export function Listen() {
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-bold mb-1">{recording.title}</h1>
               <p className="text-pod-text-secondary">
-                by <span className="text-pod-red">{recording.host.username}</span>
+                by <Link to={`/u/${recording.host.id}`} className="text-pod-red hover:text-red-400">{recording.host.username}</Link>
               </p>
               {recording.description && (
                 <p className="text-white/80 mt-3">{recording.description}</p>
@@ -229,8 +231,16 @@ export function Listen() {
             </div>
             <div className="flex items-center gap-2">
               <button
+                type="button"
+                onClick={() => setShowReport(true)}
+                className="px-3 py-1.5 min-h-11 bg-pod-active hover:bg-pod-border rounded-lg transition-colors"
+              >
+                Report
+              </button>
+              <button
+                type="button"
                 onClick={() => navigator.clipboard.writeText(window.location.href)}
-                className="px-3 py-1.5 bg-pod-active hover:bg-pod-border rounded-lg transition-colors"
+                className="px-3 py-1.5 min-h-11 bg-pod-active hover:bg-pod-border rounded-lg transition-colors"
               >
                 Share
               </button>
@@ -244,6 +254,14 @@ export function Listen() {
           </Link>
         </div>
       </div>
+
+      <ReportDialog
+        isOpen={showReport}
+        onClose={() => setShowReport(false)}
+        targetType="recording"
+        targetId={recording.id}
+        targetLabel={recording.title}
+      />
     </div>
   );
 }

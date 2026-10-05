@@ -1,4 +1,4 @@
-import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
+import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse, UserPodcast, ReportTargetType, ReportReason } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -78,6 +78,14 @@ class ApiClient {
 
   async me(): Promise<User> {
     return this.request<User>('/auth/me');
+  }
+
+  async deleteAccount(): Promise<{ message: string }> {
+    return this.request('/auth/me', { method: 'DELETE' });
+  }
+
+  legalPageUrl(page: 'privacy' | 'terms'): string {
+    return `${API_BASE}/legal/${page}`;
   }
 
   async updateProfile(data: { username?: string; email?: string | null; bio?: string | null; avatarUrl?: string | null }): Promise<User> {
@@ -234,6 +242,40 @@ class ApiClient {
 
   async getPublicRecordingDownload(shareSlug: string): Promise<{ url: string }> {
     return this.request<{ url: string }>(`/recordings/public/${shareSlug}/download`);
+  }
+
+  async getUserPodcasts(userId: string, limit?: number): Promise<{ podcasts: UserPodcast[] }> {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return this.request(`/users/${userId}/podcasts${query ? `?${query}` : ''}`);
+  }
+
+  async createReport(data: {
+    targetType: ReportTargetType;
+    targetId: string;
+    reason: ReportReason;
+    note?: string;
+  }): Promise<{ message: string }> {
+    return this.request('/reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getBlockedIds(): Promise<{ blockedIds: string[] }> {
+    return this.request('/blocks');
+  }
+
+  async blockUser(blockedId: string): Promise<{ message: string }> {
+    return this.request('/blocks', {
+      method: 'POST',
+      body: JSON.stringify({ blockedId }),
+    });
+  }
+
+  async unblockUser(blockedId: string): Promise<{ message: string }> {
+    return this.request(`/blocks/${encodeURIComponent(blockedId)}`, { method: 'DELETE' });
   }
 
   async getRecordingsFeed(limit?: number, offset?: number): Promise<RecordingFeedResponse> {

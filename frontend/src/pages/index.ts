@@ -7,3 +7,4 @@ export { Profile } from './Profile';
 export { Listen } from './Listen';
 export { CreateRoom } from './CreateRoom';
 export { Library } from './Library';
+export { UserProfile } from './UserProfile';
