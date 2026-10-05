@@ -21,6 +21,13 @@ export interface Room {
   endedAt?: string;
 }
 
+export interface SpeakerRequest {
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  requestedAt: string;
+}
+
 export interface Participant {
   id: string;
   roomId: string;

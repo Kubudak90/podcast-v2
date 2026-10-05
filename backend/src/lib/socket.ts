@@ -228,12 +228,30 @@ export function initializeSocket(httpServer: HttpServer): Server {
     });
 
     socket.on('speaker:request', async (data: { roomSlug: string }) => {
-      if (!socket.userId || !socket.username || !data.roomSlug) return;
+      if (!socket.userId || !socket.username || !data?.roomSlug) return;
+
+      const deny = (error: string) => {
+        socket.emit('room:update', {
+          type: 'speaker_request_resolved',
+          payload: { userId: socket.userId, accepted: false, error },
+        });
+      };
 
       try {
         const { room, participant } = await findActiveParticipant(data.roomSlug, socket.userId);
 
-        if (!room || room.status === 'ended' || !participant || participant.role !== 'listener') return;
+        if (!room || room.status === 'ended') {
+          deny('Yayin sona erdi');
+          return;
+        }
+        if (!participant) {
+          deny('Once odaya katilman gerekiyor');
+          return;
+        }
+        if (participant.role !== 'listener') {
+          deny('Zaten konusabiliyorsun');
+          return;
+        }
 
         await prisma.speakerRequest.upsert({
           where: {
@@ -263,6 +281,7 @@ export function initializeSocket(httpServer: HttpServer): Server {
         logger.debug({ username: socket.username, roomSlug: data.roomSlug }, 'Speaker request sent');
       } catch (error) {
         logger.error({ error, userId: socket.userId }, 'Failed to send speaker request');
+        deny('Konusma istegi gonderilemedi');
       }
     });
 
