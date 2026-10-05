@@ -23,20 +23,33 @@ router.post('/', authMiddleware, validate(blockSchema), async (req: AuthRequest,
   }
 });
 
-router.delete('/:blockedId', authMiddleware, async (req: AuthRequest<{ blockedId: string }>, res: Response) => {
-  try {
-    await prisma.block.deleteMany({ where: { blockerId: req.userId!, blockedId: req.params.blockedId } });
-    res.json({ message: 'Unblocked' });
-  } catch (error) {
-    logError(error as Error, { action: 'delete_block', userId: req.userId });
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
+router.delete(
+  '/:blockedId',
+  authMiddleware,
+  async (req: AuthRequest<{ blockedId: string }>, res: Response) => {
+    try {
+      await prisma.block.deleteMany({
+        where: { blockerId: req.userId!, blockedId: req.params.blockedId },
+      });
+      res.json({ message: 'Unblocked' });
+    } catch (error) {
+      logError(error as Error, { action: 'delete_block', userId: req.userId });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  },
+);
 
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const rows = await prisma.block.findMany({ where: { blockerId: req.userId! }, select: { blockedId: true } });
-    res.json({ blockedIds: rows.map((r) => r.blockedId) });
+    const rows = await prisma.block.findMany({
+      where: { OR: [{ blockerId: req.userId! }, { blockedId: req.userId! }] },
+      select: { blockerId: true, blockedId: true },
+    });
+    const blockedIds = rows.filter((r) => r.blockerId === req.userId).map((r) => r.blockedId);
+    const hiddenUserIds = [
+      ...new Set(rows.map((r) => (r.blockerId === req.userId ? r.blockedId : r.blockerId))),
+    ];
+    res.json({ blockedIds, hiddenUserIds });
   } catch (error) {
     logError(error as Error, { action: 'list_blocks', userId: req.userId });
     res.status(500).json({ message: 'Internal server error' });

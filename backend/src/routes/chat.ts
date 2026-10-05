@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { blockedUserIds } from '../lib/blocks.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { logError } from '../lib/logger.js';
 
@@ -21,8 +22,12 @@ router.get('/rooms/:slug/chat', async (req: AuthRequest<{ slug: string }>, res: 
       return res.status(404).json({ message: 'Room not found' });
     }
 
+    const blocked = await blockedUserIds(req.userId!);
     const messages = await prisma.chatMessage.findMany({
-      where: { roomId: room.id },
+      where: {
+        roomId: room.id,
+        ...(blocked.length ? { userId: { notIn: blocked } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: limit,
       include: {
@@ -34,14 +39,14 @@ router.get('/rooms/:slug/chat', async (req: AuthRequest<{ slug: string }>, res: 
 
     // Reverse to chronological order (fetched desc to get latest N)
     res.json(
-      messages.reverse().map((m: typeof messages[number]) => ({
+      messages.reverse().map((m: (typeof messages)[number]) => ({
         id: m.id,
         userId: m.userId,
         username: m.user.username,
         avatarUrl: m.user.avatarUrl,
         content: m.content,
         createdAt: m.createdAt.toISOString(),
-      }))
+      })),
     );
   } catch (error) {
     logError(error as Error, { action: 'get_chat_messages' });

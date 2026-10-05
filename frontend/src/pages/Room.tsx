@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   LiveKitRoom,
@@ -11,7 +11,10 @@ import { Track } from 'livekit-client';
 import { Button, VolumeSlider, AudioLevelMeter } from '../components/UI';
 import { toast } from '../components/Toast';
 import { Chat } from '../components/Chat';
+import { ModerationMenu } from '../components/ModerationMenu';
+import { RemoteAudioGains } from '../components/RemoteAudioGains';
 import { api } from '../lib/api';
+import { hiddenIdsFromBlockList, usernamesForHiddenUsers } from '../lib/moderation';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
 import type { Room as RoomType } from '../types';
@@ -30,10 +33,14 @@ async function checkMicrophonePermission(): Promise<boolean> {
 function ParticipantTile({
   participant,
   isLocal = false,
+  userId,
+  onBlocked,
   onVolumeChange
 }: {
   participant: ReturnType<typeof useParticipants>[0];
   isLocal?: boolean;
+  userId?: string;
+  onBlocked?: (userId: string) => void;
   onVolumeChange?: (volume: number) => void;
 }) {
   const tracks = useTracks([Track.Source.Microphone], { onlySubscribed: true });
@@ -71,7 +78,7 @@ function ParticipantTile({
 
   return (
     <div
-      className="flex flex-col items-center gap-2 cursor-pointer"
+      className="relative flex flex-col items-center gap-2 cursor-pointer"
       onClick={() => !isLocal && setShowVolumeControl(!showVolumeControl)}
     >
       <div className="relative">
@@ -93,6 +100,9 @@ function ParticipantTile({
       <span className="text-xs font-medium text-white truncate max-w-[80px]">
         @{participant.identity}
       </span>
+      {!isLocal && userId && (
+        <ModerationMenu username={participant.identity} userId={userId} onBlocked={onBlocked} />
+      )}
       <span className={`text-[10px] font-semibold tracking-wider ${isSpeaking ? 'text-pod-red' : 'text-pod-text-secondary'}`}>
         {isSpeaking ? 'SPEAKING' : isMuted ? 'MUTED' : 'HOST'}
       </span>
@@ -123,6 +133,56 @@ function RoomContent({ room }: { room: RoomType }) {
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [elapsedTime, setElapsedTime] = useState('00:00');
+  const [directory, setDirectory] = useState<Record<string, string>>({});
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(() => new Set());
+
+  const hiddenNames = useMemo(
+    () => usernamesForHiddenUsers(directory, blockedIds),
+    [directory, blockedIds],
+  );
+  const visibleParticipants = participants.filter((participant) => !hiddenNames.has(participant.identity));
+
+  const handleBlocked = useCallback((userId: string) => {
+    setBlockedIds((prev) => {
+      if (prev.has(userId)) return prev;
+      const next = new Set(prev);
+      next.add(userId);
+      return next;
+    });
+  }, []);
+
+  const handleParticipantJoined = useCallback((payload: { userId: string; username: string }) => {
+    setDirectory((prev) => (
+      prev[payload.username] === payload.userId ? prev : { ...prev, [payload.username]: payload.userId }
+    ));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getRoom(room.slug).then((detail) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const member of detail.participants ?? []) {
+        next[member.username] = member.userId;
+      }
+      setDirectory((prev) => ({ ...next, ...prev }));
+    }).catch((err) => {
+      console.error('Oda katilimcilari yuklenemedi:', err);
+    });
+    api.listBlocks().then((blocks) => {
+      if (cancelled) return;
+      setBlockedIds((prev) => {
+        const merged = new Set(hiddenIdsFromBlockList(blocks));
+        for (const id of prev) merged.add(id);
+        return merged;
+      });
+    }).catch((err) => {
+      console.error('Engel listesi yuklenemedi:', err);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [room.slug]);
 
   // Timer
   useEffect(() => {
@@ -157,6 +217,7 @@ function RoomContent({ room }: { room: RoomType }) {
 
   useSocket({
     roomSlug: room.slug,
+    onParticipantJoined: handleParticipantJoined,
     onStatusChanged: handleStatusChanged,
     onRoleChanged: handleRoleChanged,
     onRecordingError: handleRecordingError,
@@ -254,14 +315,26 @@ function RoomContent({ room }: { room: RoomType }) {
               <span className="text-[11px] font-semibold text-white">REC</span>
             </div>
           )}
-          <button
-            onClick={() => { void copyLink(); }}
-            className="w-10 h-10 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
-          >
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Sohbet"
+              onClick={() => setIsChatOpen(true)}
+              className="w-11 h-11 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => { void copyLink(); }}
+              className="w-11 h-11 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Room header */}
@@ -274,8 +347,8 @@ function RoomContent({ room }: { room: RoomType }) {
         <div className="px-6 flex gap-4 mb-6">
           <div className="flex-1 border border-pod-border rounded-xl p-6">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary mb-2">LISTENERS</p>
-            <p className="text-4xl font-bold text-white">{participants.length}</p>
-            <p className="text-xs text-pod-text-secondary font-mono mt-1">+{Math.max(0, participants.length - 1)} Joined</p>
+            <p className="text-4xl font-bold text-white">{visibleParticipants.length}</p>
+            <p className="text-xs text-pod-text-secondary font-mono mt-1">+{Math.max(0, visibleParticipants.length - 1)} Joined</p>
           </div>
           <div className="flex-1 border border-pod-border rounded-xl p-6">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary mb-2">DURATION</p>
@@ -288,14 +361,16 @@ function RoomContent({ room }: { room: RoomType }) {
         <div className="px-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary">SPEAKERS</p>
-            <span className="text-pod-red text-xs font-medium">{participants.length}/10</span>
+            <span className="text-pod-red text-xs font-medium">{visibleParticipants.length}/10</span>
           </div>
           <div className="flex gap-6 overflow-x-auto no-scrollbar">
-            {participants.map((p) => (
+            {visibleParticipants.map((p) => (
               <ParticipantTile
                 key={p.identity}
                 participant={p}
                 isLocal={p.identity === localParticipant?.identity}
+                userId={directory[p.identity]}
+                onBlocked={handleBlocked}
               />
             ))}
           </div>
@@ -338,8 +413,15 @@ function RoomContent({ room }: { room: RoomType }) {
           )}
         </div>
 
+        <RemoteAudioGains blockedUsernames={hiddenNames} />
         <RoomAudioRenderer />
-        <Chat roomSlug={room.slug} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+        <Chat
+          roomSlug={room.slug}
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          hiddenUserIds={blockedIds}
+          onBlocked={handleBlocked}
+        />
       </div>
     );
   }
@@ -354,14 +436,26 @@ function RoomContent({ room }: { room: RoomType }) {
             <h1 className="text-3xl font-bold text-white tracking-tight">{room.title}</h1>
             <p className="text-pod-text-secondary font-mono text-sm mt-1">Host: @{room.hostId}</p>
           </div>
-          <button
-            onClick={handleLeave}
-            className="w-10 h-10 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
-          >
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Sohbet"
+              onClick={() => setIsChatOpen(true)}
+              className="w-11 h-11 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+              </svg>
+            </button>
+            <button
+              onClick={handleLeave}
+              className="w-11 h-11 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -374,7 +468,7 @@ function RoomContent({ room }: { room: RoomType }) {
           </div>
         )}
         <div className="flex items-end gap-3">
-          <span className="text-7xl font-extrabold text-white leading-none">{participants.length}</span>
+          <span className="text-7xl font-extrabold text-white leading-none">{visibleParticipants.length}</span>
           <span className="text-xs font-semibold tracking-widest text-pod-text-secondary mb-3">LISTENERS</span>
         </div>
         <p className="text-pod-text-secondary font-mono text-sm mt-4">Live for {elapsedTime}</p>
@@ -386,11 +480,13 @@ function RoomContent({ room }: { room: RoomType }) {
           <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary">SPEAKING NOW</p>
         </div>
         <div className="flex justify-center gap-6">
-          {participants.map((p) => (
+          {visibleParticipants.map((p) => (
             <ParticipantTile
               key={p.identity}
               participant={p}
               isLocal={p.identity === localParticipant?.identity}
+              userId={directory[p.identity]}
+              onBlocked={handleBlocked}
             />
           ))}
         </div>
@@ -426,8 +522,15 @@ function RoomContent({ room }: { room: RoomType }) {
         </button>
       </div>
 
+      <RemoteAudioGains blockedUsernames={hiddenNames} />
       <RoomAudioRenderer />
-      <Chat roomSlug={room.slug} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+      <Chat
+        roomSlug={room.slug}
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        hiddenUserIds={blockedIds}
+        onBlocked={handleBlocked}
+      />
     </div>
   );
 }
