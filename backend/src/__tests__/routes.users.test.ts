@@ -302,8 +302,8 @@ describe('Users Routes', () => {
     it('owner sees public + private drafts', async () => {
       const token = generateToken(OWNER, 'owner');
       mockPrisma.recording.findMany.mockResolvedValue([
-        { id: 'a', ownerId: OWNER, coverImageKey: 'local:///recordings/covers/a.jpg', title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
-        { id: 'b', ownerId: OWNER, coverImageKey: null, title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
+        { id: 'a', ownerId: OWNER, coverImageKey: 'local:///recordings/covers/a.jpg', title: 'Pub', isPublic: true, shareSlug: 's', durationSeconds: 10, playCount: 2, fileSizeBytes: 4096n, createdAt: new Date('2024-01-02'), room: { title: 'R' } },
+        { id: 'b', ownerId: OWNER, coverImageKey: null, title: null, isPublic: false, shareSlug: null, durationSeconds: 5, playCount: 0, fileSizeBytes: null, createdAt: new Date('2024-01-01'), room: { title: 'Room2' } },
       ]);
 
       const res = await request(app)
@@ -317,6 +317,8 @@ describe('Users Routes', () => {
       expect(res.body.podcasts[1].title).toBe('Room2'); // title null -> room.title fallback
       expect(res.body.podcasts[0].coverImageUrl).toContain('/api/recordings/a/cover');
       expect(res.body.podcasts[1].coverImageUrl).toBeNull();
+      expect(res.body.podcasts[0].fileSizeBytes).toBe(4096);
+      expect(res.body.podcasts[1].fileSizeBytes).toBe(0);
       expect(mockPrisma.recording.findMany.mock.calls[0][0].where).toEqual({ ownerId: OWNER });
     });
 

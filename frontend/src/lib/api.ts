@@ -1,4 +1,4 @@
-import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
+import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse, UserPodcast } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -234,6 +234,13 @@ class ApiClient {
 
   async getPublicRecordingDownload(shareSlug: string): Promise<{ url: string }> {
     return this.request<{ url: string }>(`/recordings/public/${shareSlug}/download`);
+  }
+
+  async getUserPodcasts(userId: string, limit?: number): Promise<{ podcasts: UserPodcast[] }> {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return this.request(`/users/${userId}/podcasts${query ? `?${query}` : ''}`);
   }
 
   async getRecordingsFeed(limit?: number, offset?: number): Promise<RecordingFeedResponse> {

@@ -168,3 +168,16 @@ export interface FollowUser {
   bio?: string;
   followedAt: string;
 }
+
+export interface UserPodcast {
+  id: string;
+  ownerId: string | null;
+  coverImageUrl: string | null;
+  title: string;
+  isPublic: boolean;
+  shareSlug: string | null;
+  durationSeconds: number | null;
+  playCount: number;
+  createdAt: string;
+  fileSizeBytes?: number;
+}
