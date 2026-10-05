@@ -250,6 +250,7 @@ router.get('/:userId/podcasts', async (req: AuthRequest<{ userId: string }>, res
         shareSlug: r.shareSlug,
         durationSeconds: r.durationSeconds,
         playCount: r.playCount,
+        fileSizeBytes: Number(r.fileSizeBytes ?? 0),
         createdAt: r.createdAt.toISOString(),
       })),
     });
