@@ -88,16 +88,21 @@ describe('Blocks Routes', () => {
   });
 
   describe('GET /api/blocks', () => {
-    it('lists the blocked ids -> { blockedIds }', async () => {
-      mockPrisma.block.findMany.mockResolvedValue([{ blockedId: 'user-2' }, { blockedId: 'user-3' }]);
-      const res = await request(app)
-        .get('/api/blocks')
-        .set('Authorization', `Bearer ${token}`);
+    it('lists outgoing blocks and mutual ids to hide', async () => {
+      mockPrisma.block.findMany.mockResolvedValue([
+        { blockerId: 'user-1', blockedId: 'user-2' },
+        { blockerId: 'user-1', blockedId: 'user-3' },
+        { blockerId: 'user-9', blockedId: 'user-1' },
+      ]);
+      const res = await request(app).get('/api/blocks').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ blockedIds: ['user-2', 'user-3'] });
+      expect(res.body).toEqual({
+        blockedIds: ['user-2', 'user-3'],
+        hiddenUserIds: ['user-2', 'user-3', 'user-9'],
+      });
       expect(mockPrisma.block.findMany).toHaveBeenCalledWith({
-        where: { blockerId: 'user-1' },
-        select: { blockedId: true },
+        where: { OR: [{ blockerId: 'user-1' }, { blockedId: 'user-1' }] },
+        select: { blockerId: true, blockedId: true },
       });
     });
   });

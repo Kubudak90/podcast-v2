@@ -1,28 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
+import { useAuthStore } from '../lib/store';
+import { visibleChatMessages } from '../lib/moderation';
+import type { ChatMessage } from '../types';
 import { Avatar } from './UI';
-
-interface ChatMessage {
-  id: string;
-  userId: string;
-  username: string;
-  avatarUrl?: string | null;
-  content: string;
-  createdAt: string;
-}
+import { ModerationMenu } from './ModerationMenu';
 
 interface ChatProps {
   roomSlug: string;
   isOpen: boolean;
   onClose: () => void;
+  hiddenUserIds: ReadonlySet<string>;
+  onBlocked: (userId: string) => void;
 }
 
-export function Chat({ roomSlug, isOpen, onClose }: ChatProps) {
+export function Chat({ roomSlug, isOpen, onClose, hiddenUserIds, onBlocked }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentUserId = useAuthStore((state) => state.user?.id);
+  const visibleMessages = visibleChatMessages(messages, hiddenUserIds, currentUserId);
 
   // Load initial messages
   useEffect(() => {
@@ -30,15 +29,8 @@ export function Chat({ roomSlug, isOpen, onClose }: ChatProps) {
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/rooms/${roomSlug}/chat`, {
-          headers: {
-            Authorization: `Bearer ${api.getToken()}`,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setMessages(data);
-        }
+        const data = await api.getRoomChat(roomSlug);
+        setMessages(data);
       } catch (error) {
         console.error('Failed to load chat messages:', error);
       } finally {
@@ -118,12 +110,12 @@ export function Chat({ roomSlug, isOpen, onClose }: ChatProps) {
           <div className="flex justify-center py-4">
             <div className="animate-spin w-6 h-6 border-2 border-pod-red border-t-transparent rounded-full" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : visibleMessages.length === 0 ? (
           <p className="text-pod-text-secondary text-center text-sm py-4">
             Henuz mesaj yok. Sohbete baslayin!
           </p>
         ) : (
-          messages.map((msg) => (
+          visibleMessages.map((msg) => (
             <div key={msg.id} className="flex gap-2">
               <Avatar name={msg.username} size="sm" />
               <div className="flex-1 min-w-0">
@@ -140,6 +132,14 @@ export function Chat({ roomSlug, isOpen, onClose }: ChatProps) {
                 </div>
                 <p className="text-sm text-white/80 break-words">{msg.content}</p>
               </div>
+              {msg.userId !== currentUserId && (
+                <ModerationMenu
+                  username={msg.username}
+                  userId={msg.userId}
+                  messageId={msg.id}
+                  onBlocked={onBlocked}
+                />
+              )}
             </div>
           ))
         )}

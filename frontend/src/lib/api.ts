@@ -1,4 +1,4 @@
-import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
+import type { User, Room, RoomDetails, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse, ChatMessage, ReportReason, ReportTargetType, BlockList } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -118,8 +118,8 @@ class ApiClient {
     });
   }
 
-  async getRoom(slug: string): Promise<Room> {
-    return this.request<Room>(`/rooms/${slug}`);
+  async getRoom(slug: string): Promise<RoomDetails> {
+    return this.request<RoomDetails>(`/rooms/${slug}`);
   }
 
   async joinRoom(slug: string, password?: string): Promise<{ room: Room; participant: { role: string } }> {
@@ -234,6 +234,33 @@ class ApiClient {
 
   async getPublicRecordingDownload(shareSlug: string): Promise<{ url: string }> {
     return this.request<{ url: string }>(`/recordings/public/${shareSlug}/download`);
+  }
+
+  async getRoomChat(slug: string): Promise<ChatMessage[]> {
+    return this.request<ChatMessage[]>(`/rooms/${slug}/chat`);
+  }
+
+  async reportContent(data: {
+    targetType: ReportTargetType;
+    targetId: string;
+    reason: ReportReason;
+    note?: string;
+  }): Promise<{ message: string }> {
+    return this.request('/reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async blockUser(blockedId: string): Promise<{ message: string }> {
+    return this.request('/blocks', {
+      method: 'POST',
+      body: JSON.stringify({ blockedId }),
+    });
+  }
+
+  async listBlocks(): Promise<BlockList> {
+    return this.request<BlockList>('/blocks');
   }
 
   async getRecordingsFeed(limit?: number, offset?: number): Promise<RecordingFeedResponse> {

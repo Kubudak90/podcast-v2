@@ -21,6 +21,41 @@ export interface Room {
   endedAt?: string;
 }
 
+export interface RoomMember {
+  id: string;
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  role: 'host' | 'speaker' | 'listener';
+}
+
+export interface RoomDetails extends Room {
+  participants: RoomMember[];
+  host?: {
+    id: string;
+    username: string;
+    avatarUrl?: string | null;
+  };
+}
+
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  content: string;
+  createdAt: string;
+}
+
+export type ReportTargetType = 'recording' | 'room' | 'message' | 'user';
+export type ReportReason = 'spam' | 'harassment' | 'hate' | 'sexual' | 'other';
+
+export interface BlockList {
+  blockedIds: string[];
+  /** User ids hidden in either block direction. */
+  hiddenUserIds?: string[];
+}
+
 export interface Participant {
   id: string;
   roomId: string;
