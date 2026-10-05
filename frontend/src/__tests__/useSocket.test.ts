@@ -137,6 +137,42 @@ describe('useSocket', () => {
     expect(onRecordingError).toHaveBeenCalledWith({ error: 'Kayit baslatilamadi' });
   });
 
+  it('should call onSpeakerRequested when a listener raises a hand', () => {
+    const onSpeakerRequested = vi.fn();
+    renderHook(() => useSocket({ onSpeakerRequested }));
+
+    const handler = mockSocket.on.mock.calls.find((call) => call[0] === 'room:update')?.[1];
+
+    act(() => {
+      handler?.({
+        type: 'speaker_requested',
+        payload: { userId: 'user-2', username: 'ada', requestedAt: '2026-10-05T00:00:00.000Z' },
+      });
+    });
+
+    expect(onSpeakerRequested).toHaveBeenCalledWith({
+      userId: 'user-2',
+      username: 'ada',
+      requestedAt: '2026-10-05T00:00:00.000Z',
+    });
+  });
+
+  it('should call onSpeakerRequestResolved when a hand is closed', () => {
+    const onSpeakerRequestResolved = vi.fn();
+    renderHook(() => useSocket({ onSpeakerRequestResolved }));
+
+    const handler = mockSocket.on.mock.calls.find((call) => call[0] === 'room:update')?.[1];
+
+    act(() => {
+      handler?.({
+        type: 'speaker_request_resolved',
+        payload: { userId: 'user-2', accepted: false },
+      });
+    });
+
+    expect(onSpeakerRequestResolved).toHaveBeenCalledWith({ userId: 'user-2', accepted: false });
+  });
+
   it('should call onParticipantLeft when participant leaves', () => {
     const onParticipantLeft = vi.fn();
     renderHook(() => useSocket({ onParticipantLeft }));

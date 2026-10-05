@@ -13,6 +13,8 @@ import type {
   StatusChangedPayload,
   RoleChangedPayload,
   RecordingErrorPayload,
+  SpeakerRequestedPayload,
+  SpeakerRequestResolvedPayload,
 } from '../lib/socket';
 import { useAuthStore } from '../lib/store';
 
@@ -23,10 +25,21 @@ interface UseSocketOptions {
   onStatusChanged?: (payload: StatusChangedPayload) => void;
   onRoleChanged?: (payload: RoleChangedPayload) => void;
   onRecordingError?: (payload: RecordingErrorPayload) => void;
+  onSpeakerRequested?: (payload: SpeakerRequestedPayload) => void;
+  onSpeakerRequestResolved?: (payload: SpeakerRequestResolvedPayload) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}) {
-  const { roomSlug, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError } = options;
+  const {
+    roomSlug,
+    onParticipantJoined,
+    onParticipantLeft,
+    onStatusChanged,
+    onRoleChanged,
+    onRecordingError,
+    onSpeakerRequested,
+    onSpeakerRequestResolved,
+  } = options;
   const { isAuthenticated } = useAuthStore();
 
   useEffect(() => {
@@ -51,6 +64,12 @@ export function useSocket(options: UseSocketOptions = {}) {
         case 'recording_stopped':
           onRecordingError?.(event.payload as RecordingErrorPayload);
           break;
+        case 'speaker_requested':
+          onSpeakerRequested?.(event.payload as SpeakerRequestedPayload);
+          break;
+        case 'speaker_request_resolved':
+          onSpeakerRequestResolved?.(event.payload as SpeakerRequestResolvedPayload);
+          break;
       }
     };
 
@@ -59,7 +78,7 @@ export function useSocket(options: UseSocketOptions = {}) {
     return () => {
       socket.off('room:update', handleRoomUpdate);
     };
-  }, [isAuthenticated, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError]);
+  }, [isAuthenticated, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError, onSpeakerRequested, onSpeakerRequestResolved]);
 
   // Join/leave room channel
   useEffect(() => {

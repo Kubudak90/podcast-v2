@@ -1,4 +1,4 @@
-import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
+import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse, SpeakerRequest } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -146,6 +146,10 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ userId, role }),
     });
+  }
+
+  async getSpeakerRequests(slug: string): Promise<{ requests: SpeakerRequest[] }> {
+    return this.request(`/rooms/${slug}/speaker-requests`);
   }
 
   // Recordings

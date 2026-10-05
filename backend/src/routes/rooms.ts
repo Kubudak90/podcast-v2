@@ -8,7 +8,7 @@ import { validate, validateQuery } from '../middleware/validate.js';
 import { roomCreateLimiter } from '../middleware/rateLimit.js';
 import { createRoomSchema, changeRoleSchema, joinRoomSchema, roomListQuerySchema, participantActionSchema } from '../lib/validation.js';
 import { startRoomRecording, stopRoomRecording, setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
-import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate, emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved } from '../lib/socket.js';
+import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emitParticipantRoleChanged, emitRoomUpdate, emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved, emitSpeakerRequestResolved } from '../lib/socket.js';
 import { logRecording, logError } from '../lib/logger.js';
 import { notifyFollowersOfLive } from '../lib/push.js';
 import { blockedUserIds } from '../lib/blocks.js';
@@ -685,8 +685,9 @@ router.patch('/:slug/role', validate(changeRoleSchema), async (req: AuthRequest<
       },
     });
 
-    // Emit socket event for role change
+    // Emit socket event for role change and close any pending hand-raise.
     emitParticipantRoleChanged(room.slug, userId as string, role as string);
+    emitSpeakerRequestResolved(room.slug, userId as string, role === 'speaker');
 
     res.json({ message: 'Role updated successfully' });
   } catch (error) {

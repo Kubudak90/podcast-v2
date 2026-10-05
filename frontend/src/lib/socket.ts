@@ -58,14 +58,37 @@ export function leaveRoomChannel(roomSlug: string): void {
   }
 }
 
+export function requestToSpeak(roomSlug: string): void {
+  connectSocket().emit('speaker:request', { roomSlug });
+}
+
+export function rejectSpeakerRequest(roomSlug: string, userId: string): void {
+  connectSocket().emit('speaker:reject', { roomSlug, userId });
+}
+
 // Types for room updates
 export interface RecordingErrorPayload {
   error: string;
 }
 
 export interface RoomUpdateEvent {
-  type: 'status_changed' | 'participant_joined' | 'participant_left' | 'participant_role_changed' | 'recording_started' | 'recording_stopped';
-  payload: ParticipantJoinedPayload | ParticipantLeftPayload | StatusChangedPayload | RoleChangedPayload | RecordingErrorPayload;
+  type:
+    | 'status_changed'
+    | 'participant_joined'
+    | 'participant_left'
+    | 'participant_role_changed'
+    | 'recording_started'
+    | 'recording_stopped'
+    | 'speaker_requested'
+    | 'speaker_request_resolved';
+  payload:
+    | ParticipantJoinedPayload
+    | ParticipantLeftPayload
+    | StatusChangedPayload
+    | RoleChangedPayload
+    | RecordingErrorPayload
+    | SpeakerRequestedPayload
+    | SpeakerRequestResolvedPayload;
 }
 
 export interface ParticipantJoinedPayload {
@@ -87,4 +110,17 @@ export interface StatusChangedPayload {
 export interface RoleChangedPayload {
   userId: string;
   role: string;
+}
+
+export interface SpeakerRequestedPayload {
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  requestedAt: string;
+}
+
+export interface SpeakerRequestResolvedPayload {
+  userId: string;
+  accepted: boolean;
+  error?: string;
 }

@@ -91,13 +91,14 @@ vi.mock('../lib/socket.js', () => ({
   emitParticipantMuted: vi.fn(),
   emitParticipantRemoved: vi.fn(),
   emitSpeakerUnmuteResolved: vi.fn(),
+  emitSpeakerRequestResolved: vi.fn(),
 }));
 
 // Import after mocks are defined
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
 import { setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
-import { emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved } from '../lib/socket.js';
+import { emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved, emitSpeakerRequestResolved } from '../lib/socket.js';
 
 // Type helper for mocked prisma
 type MockFn = ReturnType<typeof vi.fn>;
@@ -681,6 +682,11 @@ describe('Room Routes', () => {
           }),
         })
       );
+      expect(emitSpeakerRequestResolved).toHaveBeenCalledWith(
+        'abc12345',
+        '550e8400-e29b-41d4-a716-446655440000',
+        false,
+      );
     });
 
     it('should reject invalid role', async () => {
@@ -765,6 +771,11 @@ describe('Room Routes', () => {
 
       expect(res.status).toBe(200);
       expect(setParticipantCanPublish).toHaveBeenCalledWith('abc', 'alice', true);
+      expect(emitSpeakerRequestResolved).toHaveBeenCalledWith(
+        'abc',
+        '550e8400-e29b-41d4-a716-446655440001',
+        true,
+      );
     });
   });
 
