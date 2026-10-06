@@ -172,7 +172,8 @@ components:
       type: object
       properties:
         id: { type: string }
-        roomId: { type: string }
+        roomId: { type: string, nullable: true }
+        ownerId: { type: string, nullable: true }
         fileUrl: { type: string }
         durationSeconds: { type: integer }
         fileSizeBytes: { type: integer }

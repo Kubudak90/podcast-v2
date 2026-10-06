@@ -109,7 +109,20 @@ describe('Recordings Routes', () => {
       mockPrisma.room.findUnique.mockResolvedValue({ id: 'room-1', slug: 'my-room', hostId: 'someone-else' });
       mockPrisma.roomParticipant.findFirst.mockResolvedValue({ id: 'p-1', userId: 'user-123' });
       mockPrisma.recording.findMany.mockResolvedValue([
-        { id: 'rec-1', roomId: 'room-1', fileUrl: 'local://rec.mp4', durationSeconds: 120, fileSizeBytes: 4096, format: 'mp4', createdAt: new Date('2024-01-15') },
+        {
+          id: 'rec-1',
+          roomId: 'room-1',
+          ownerId: 'user-123',
+          fileUrl: 'local://rec.mp4',
+          title: 'Friday Talk',
+          description: 'Notes',
+          isPublic: true,
+          shareSlug: 'abc123xyz0',
+          durationSeconds: 120,
+          fileSizeBytes: 4096,
+          format: 'mp4',
+          createdAt: new Date('2024-01-15'),
+        },
       ]);
 
       const response = await request(app)
@@ -118,7 +131,16 @@ describe('Recordings Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveLength(1);
-      expect(response.body[0]).toMatchObject({ id: 'rec-1', format: 'mp4', durationSeconds: 120 });
+      expect(response.body[0]).toMatchObject({
+        id: 'rec-1',
+        ownerId: 'user-123',
+        title: 'Friday Talk',
+        description: 'Notes',
+        isPublic: true,
+        shareSlug: 'abc123xyz0',
+        format: 'mp4',
+        durationSeconds: 120,
+      });
     });
 
     it('should 403 for a non-participant, non-host', async () => {
