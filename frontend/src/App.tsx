@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Header, TabBar } from './components/Layout';
-import { Home, Login, SignUp, Room, RoomEnded, Profile, Listen, CreateRoom, Library } from './pages';
+import { Home, Login, SignUp, Room, RoomEnded, Profile, Listen, CreateRoom, Library, JoinRoom, NotFound } from './pages';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { useEffect } from 'react';
@@ -38,6 +38,8 @@ function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/library" element={<Library />} />
               <Route path="/listen/:shareSlug" element={<Listen />} />
+              <Route path="/join" element={<JoinRoom />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </main>
           <TabBar />

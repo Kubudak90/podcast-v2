@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/UI';
 import { api } from '../lib/api';
+import { consumePendingRoom } from '../lib/roomLink';
 import { useAuthStore } from '../lib/store';
 
 export function Login() {
@@ -32,7 +33,8 @@ export function Login() {
       const response = await api.login(email.trim(), password);
       api.setToken(response.token);
       setAuth(response.user, response.token);
-      navigate('/');
+      const pendingRoom = consumePendingRoom();
+      navigate(pendingRoom ? `/room/${pendingRoom}` : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Giris yapilamadi');
     } finally {
