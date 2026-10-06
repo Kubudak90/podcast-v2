@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, banGuard, AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { reportSchema } from '../lib/validation.js';
 import { notifyModeration } from '../lib/notify.js';
@@ -10,17 +10,33 @@ const router = Router();
 const AUTO_HIDE_THRESHOLD = 3;
 
 // POST /api/reports - report a piece of UGC or a user
-router.post('/', authMiddleware, validate(reportSchema), async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, banGuard, validate(reportSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { targetType, targetId, reason, note } = req.body;
+    if (targetType === 'user' && targetId === req.userId) {
+      return res.status(400).json({ message: 'You cannot report yourself' });
+    }
+
+    const existing = await prisma.report.findFirst({
+      where: { reporterId: req.userId!, targetType, targetId, status: 'pending' },
+      select: { id: true },
+    });
+    if (existing) {
+      return res.status(409).json({ message: 'You already reported this' });
+    }
+
     await prisma.report.create({
       data: { reporterId: req.userId!, targetType, targetId, reason, note: note ?? null },
     });
 
     if (targetType === 'recording') {
-      const count = await prisma.report.count({ where: { targetType: 'recording', targetId, status: 'pending' } });
-      if (count >= AUTO_HIDE_THRESHOLD) {
-        await prisma.recording.update({ where: { id: targetId }, data: { isHidden: true } });
+      const reporters = await prisma.report.findMany({
+        where: { targetType: 'recording', targetId, status: 'pending' },
+        select: { reporterId: true },
+        distinct: ['reporterId'],
+      });
+      if (reporters.length >= AUTO_HIDE_THRESHOLD) {
+        await prisma.recording.updateMany({ where: { id: targetId }, data: { isHidden: true } });
       }
     }
 
