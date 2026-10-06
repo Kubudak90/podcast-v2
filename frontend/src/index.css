@@ -186,3 +186,33 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #666666;
 }
+
+/* 16px on touch screens so iOS does not zoom the page when a field is focused. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* OS "reduce motion": keep speaking and loading cues visible, without looping. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-slide-in,
+  .animate-speaking-pulse,
+  .animate-speaking-ring,
+  .animate-spin,
+  .animate-pulse,
+  .audio-wave-bar {
+    animation: none !important;
+  }
+}
