@@ -9,9 +9,11 @@ import {
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { Button, VolumeSlider, AudioLevelMeter } from '../components/UI';
+import { ListenerPrimaryAction } from '../components/ListenerPrimaryAction';
 import { toast } from '../components/Toast';
 import { Chat } from '../components/Chat';
 import { api } from '../lib/api';
+import { disableMicrophone, enableMicrophoneWhenAllowed, micIntentForRole } from '../lib/micRole';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
 import type { Room as RoomType } from '../types';
@@ -112,11 +114,20 @@ function ParticipantTile({
   );
 }
 
-function RoomContent({ room }: { room: RoomType }) {
+function RoomContent({
+  room,
+  refreshLiveKitToken,
+}: {
+  room: RoomType;
+  refreshLiveKitToken: () => Promise<void>;
+}) {
   const navigate = useNavigate();
-  const { isHost, isMuted, currentRoomPassword, setIsMuted, setIsSpeaker, reset } = useRoomStore();
+  const { isHost, isSpeaker, isMuted, currentRoomPassword, setIsMuted, setIsSpeaker, reset } = useRoomStore();
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
+  const localParticipantRef = useRef(localParticipant);
+  localParticipantRef.current = localParticipant;
+  const micJobRef = useRef(0);
   const [isLive, setIsLive] = useState(room.status === 'live');
   const [micPermission, setMicPermission] = useState<boolean | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -144,12 +155,54 @@ function RoomContent({ room }: { room: RoomType }) {
 
   const handleRoleChanged = useCallback((payload: { userId: string; role: string }) => {
     const currentUserId = useAuthStore.getState().user?.id;
-    if (payload.userId === currentUserId) {
-      const newIsSpeaker = payload.role === 'speaker' || payload.role === 'host';
-      setIsSpeaker(newIsSpeaker);
-      toast.info(newIsSpeaker ? 'Konusmaci oldun!' : 'Dinleyici moduna aldiniz');
-    }
-  }, [setIsSpeaker]);
+    if (payload.userId !== currentUserId) return;
+
+    const intent = micIntentForRole(payload.role);
+    if (!intent) return;
+
+    const newIsSpeaker = intent === 'enable';
+    setIsSpeaker(newIsSpeaker);
+    toast.info(newIsSpeaker ? 'Konusmaci oldun!' : 'Dinleyici moduna aldiniz');
+
+    const job = ++micJobRef.current;
+    void (async () => {
+      const setEnabled = async (enabled: boolean) => {
+        const participant = localParticipantRef.current;
+        if (!participant) throw new Error('not connected');
+        await participant.setMicrophoneEnabled(enabled);
+      };
+
+      if (intent === 'disable') {
+        const result = await disableMicrophone(setEnabled);
+        if (micJobRef.current !== job) return;
+        if (result === 'disabled') setIsMuted(true);
+        else toast.error('Mikrofon kapatilamadi.');
+        return;
+      }
+
+      const allowed = await checkMicrophonePermission();
+      setMicPermission(allowed);
+      if (micJobRef.current !== job) return;
+      if (!allowed) {
+        toast.error('Mikrofon izni gerekli.');
+        return;
+      }
+
+      const result = await enableMicrophoneWhenAllowed({
+        canPublish: () => localParticipantRef.current?.permissions?.canPublish === true,
+        setEnabled,
+        isCancelled: () => micJobRef.current !== job,
+        refreshPermission: refreshLiveKitToken,
+      });
+      if (micJobRef.current !== job) return;
+      if (result === 'enabled') {
+        setIsMuted(false);
+        toast.success('Mikrofon acildi');
+      } else if (result === 'unavailable') {
+        toast.error('Mikrofon acilamadi. MIC ON ile tekrar dene.');
+      }
+    })();
+  }, [refreshLiveKitToken, setIsMuted, setIsSpeaker]);
 
   const handleRecordingError = useCallback((payload: { error: string }) => {
     toast.error(payload.error);
@@ -400,12 +453,11 @@ function RoomContent({ room }: { room: RoomType }) {
 
       {/* Actions */}
       <div className="px-6 pb-6 safe-area-pb flex gap-4">
-        <button className="flex-1 h-14 flex flex-col items-center justify-center gap-1 border border-pod-border rounded-xl hover:bg-pod-elevated transition-colors">
-          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-          </svg>
-          <span className="text-[10px] font-semibold text-white tracking-wider">REQUEST</span>
-        </button>
+        <ListenerPrimaryAction
+          isSpeaker={isSpeaker}
+          isMuted={isMuted}
+          onToggleMute={() => { void handleToggleMute(); }}
+        />
         <button
           onClick={() => { void copyLink(); }}
           className="flex-1 h-14 flex flex-col items-center justify-center gap-1 border border-pod-border rounded-xl hover:bg-pod-elevated transition-colors"
@@ -480,6 +532,14 @@ export function Room() {
     },
     [slug],
   );
+
+  const refreshLiveKitToken = useCallback(async () => {
+    if (!slug) return;
+    const fresh = await api.getLiveKitToken(slug);
+    setLivekitToken(fresh.token);
+    setLivekitUrl(fresh.url);
+    scheduleTokenRefresh(fresh.expiresAt);
+  }, [slug, scheduleTokenRefresh]);
 
   useEffect(() => () => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -634,7 +694,7 @@ export function Room() {
         dynacast: true,
       }}
     >
-      <RoomContent room={room} />
+      <RoomContent room={room} refreshLiveKitToken={refreshLiveKitToken} />
     </LiveKitRoom>
   );
 }
