@@ -16,6 +16,8 @@ export interface Room {
   maxSpeakers: number;
   isPublic: boolean;
   hasPassword: boolean;
+  topic?: string | null;
+  description?: string | null;
   createdAt: string;
   startedAt?: string;
   endedAt?: string;
@@ -138,6 +140,8 @@ export interface PublicRoom {
   };
   participantCount: number;
   maxSpeakers: number;
+  topic?: string | null;
+  description?: string | null;
   createdAt: string;
   startedAt?: string;
 }

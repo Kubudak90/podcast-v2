@@ -15,6 +15,13 @@ import { blockedUserIds } from '../lib/blocks.js';
 
 const router = Router();
 
+function roomDiscoveryFields(room: { topic?: string | null; description?: string | null }) {
+  return {
+    topic: room.topic ?? null,
+    description: room.description ?? null,
+  };
+}
+
 // GET /api/rooms - List public rooms
 router.get('/', validateQuery(roomListQuerySchema), async (req: AuthRequest, res: Response) => {
   try {
@@ -22,25 +29,26 @@ router.get('/', validateQuery(roomListQuerySchema), async (req: AuthRequest, res
     const offset = Number(req.query.offset) || 0;
     const search = req.query.search as string | undefined;
     const status = req.query.status as string | undefined;
+    const topic = req.query.topic as string | undefined;
 
-    // Build where clause
-    const where: {
-      isPublic: boolean;
-      status: { in: string[] } | string;
-      title?: { contains: string; mode: 'insensitive' };
-    } = {
+    const where: Prisma.RoomWhereInput = {
       isPublic: true,
       status: status && ['live', 'waiting'].includes(status)
         ? status
         : { in: ['live', 'waiting'] },
     };
 
-    // Add search filter
+    if (topic) {
+      where.topic = topic;
+    }
+
+    // Match the home search box: room title or host username.
     if (search && search.trim()) {
-      where.title = {
-        contains: search.trim(),
-        mode: 'insensitive',
-      };
+      const query = search.trim();
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { host: { username: { contains: query, mode: 'insensitive' } } },
+      ];
     }
 
     // Use _count with where clause to avoid N+1 query problem
@@ -80,6 +88,7 @@ router.get('/', validateQuery(roomListQuerySchema), async (req: AuthRequest, res
       host: room.host,
       participantCount: room._count.participants,
       maxSpeakers: room.maxSpeakers,
+      ...roomDiscoveryFields(room),
       createdAt: room.createdAt.toISOString(),
       startedAt: room.startedAt?.toISOString() || null,
     }));
@@ -103,6 +112,10 @@ router.use(authMiddleware);
 router.post('/', roomCreateLimiter, banGuard, validate(createRoomSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { title, isPublic = true, maxSpeakers = 10, password } = req.body;
+    const topic = req.body.topic ?? 'technology';
+    const description = typeof req.body.description === 'string' && req.body.description.trim()
+      ? req.body.description.trim()
+      : null;
 
     const slug = nanoid(8);
 
@@ -114,6 +127,8 @@ router.post('/', roomCreateLimiter, banGuard, validate(createRoomSchema), async 
         isPublic,
         maxSpeakers,
         password: password ? await bcrypt.hash(password, 10) : null,
+        topic,
+        description,
       },
     });
 
@@ -135,6 +150,7 @@ router.post('/', roomCreateLimiter, banGuard, validate(createRoomSchema), async 
       maxSpeakers: room.maxSpeakers,
       isPublic: room.isPublic,
       hasPassword: !!room.password,
+      ...roomDiscoveryFields(room),
       createdAt: room.createdAt.toISOString(),
       startedAt: room.startedAt?.toISOString(),
       endedAt: room.endedAt?.toISOString(),
@@ -199,6 +215,7 @@ router.get('/:slug', async (req: AuthRequest<{ slug: string }>, res: Response) =
       maxSpeakers: room.maxSpeakers,
       isPublic: room.isPublic,
       hasPassword: !!room.password,
+      ...roomDiscoveryFields(room),
       createdAt: room.createdAt.toISOString(),
       startedAt: room.startedAt?.toISOString(),
       endedAt: room.endedAt?.toISOString(),
@@ -273,6 +290,7 @@ router.post('/:slug/join', banGuard, validate(joinRoomSchema), async (req: AuthR
           status: room.status,
           maxSpeakers: room.maxSpeakers,
           isPublic: room.isPublic,
+          ...roomDiscoveryFields(room),
           createdAt: room.createdAt.toISOString(),
           startedAt: room.startedAt?.toISOString(),
           endedAt: room.endedAt?.toISOString(),
@@ -331,6 +349,7 @@ router.post('/:slug/join', banGuard, validate(joinRoomSchema), async (req: AuthR
         status: room.status,
         maxSpeakers: room.maxSpeakers,
         isPublic: room.isPublic,
+        ...roomDiscoveryFields(room),
         createdAt: room.createdAt.toISOString(),
         startedAt: room.startedAt?.toISOString(),
         endedAt: room.endedAt?.toISOString(),

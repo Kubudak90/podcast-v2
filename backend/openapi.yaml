@@ -93,6 +93,11 @@ components:
         maxSpeakers: { type: integer }
         isPublic: { type: boolean }
         hasPassword: { type: boolean }
+        topic:
+          type: string
+          nullable: true
+          enum: [technology, sports, music, news, comedy, business, science, education]
+        description: { type: string, nullable: true, maxLength: 300 }
         createdAt: { type: string, format: date-time }
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }
@@ -115,6 +120,11 @@ components:
             avatarUrl: { type: string }
         participantCount: { type: integer }
         maxSpeakers: { type: integer }
+        topic:
+          type: string
+          nullable: true
+          enum: [technology, sports, music, news, comedy, business, science, education]
+        description: { type: string, nullable: true }
         createdAt: { type: string, format: date-time }
         startedAt: { type: string, format: date-time }
 
@@ -268,6 +278,15 @@ paths:
         - in: query
           name: offset
           schema: { type: integer, default: 0 }
+        - in: query
+          name: search
+          schema: { type: string, maxLength: 100 }
+          description: Matches room title or host username
+        - in: query
+          name: topic
+          schema:
+            type: string
+            enum: [technology, sports, music, news, comedy, business, science, education]
       responses:
         '200':
           description: OK
@@ -294,6 +313,11 @@ paths:
                 title: { type: string, maxLength: 100 }
                 isPublic: { type: boolean, default: true }
                 password: { type: string, description: Optional — makes the room password-protected }
+                topic:
+                  type: string
+                  default: technology
+                  enum: [technology, sports, music, news, comedy, business, science, education]
+                description: { type: string, maxLength: 300 }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Room' } } } }
 

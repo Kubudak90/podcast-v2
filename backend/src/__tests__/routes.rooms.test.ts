@@ -25,6 +25,8 @@ vi.mock('../lib/prisma.js', () => {
   };
   const roomMock = {
     findUnique: vi.fn(),
+    findMany: vi.fn(),
+    count: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
   };
@@ -104,7 +106,7 @@ type MockFn = ReturnType<typeof vi.fn>;
 type MockedPrisma = {
   user: { findUnique: MockFn; findFirst: MockFn; create: MockFn; update: MockFn };
   userFollow: { findMany: MockFn };
-  room: { findUnique: MockFn; create: MockFn; update: MockFn };
+  room: { findUnique: MockFn; findMany: MockFn; count: MockFn; create: MockFn; update: MockFn };
   roomParticipant: { findUnique: MockFn; findFirst: MockFn; findMany: MockFn; create: MockFn; update: MockFn; updateMany: MockFn; count: MockFn };
   speakerRequest: { findMany: MockFn; updateMany: MockFn };
   block: { findMany: MockFn; upsert: MockFn; deleteMany: MockFn };
@@ -119,6 +121,65 @@ describe('Room Routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPrisma.block.findMany.mockResolvedValue([]);
+  });
+
+  describe('GET /api/rooms', () => {
+    const listedRoom = {
+      id: 'room-1',
+      slug: 'slug1',
+      title: 'Music Hour',
+      status: 'live',
+      isPublic: true,
+      password: null,
+      topic: 'music',
+      description: 'Jazz',
+      host: { id: 'host-1', username: 'ada', avatarUrl: null },
+      _count: { participants: 2 },
+      maxSpeakers: 10,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      startedAt: null,
+    };
+
+    it('should filter public rooms by topic', async () => {
+      mockPrisma.room.findMany.mockResolvedValue([listedRoom]);
+      mockPrisma.room.count.mockResolvedValue(1);
+
+      const response = await request(app).get('/api/rooms?topic=music');
+
+      expect(response.status).toBe(200);
+      expect(response.body.rooms).toHaveLength(1);
+      expect(response.body.rooms[0].topic).toBe('music');
+      expect(response.body.rooms[0].description).toBe('Jazz');
+      expect(mockPrisma.room.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ topic: 'music', isPublic: true }),
+        }),
+      );
+    });
+
+    it('should search room title or host username', async () => {
+      mockPrisma.room.findMany.mockResolvedValue([listedRoom]);
+      mockPrisma.room.count.mockResolvedValue(1);
+
+      const response = await request(app).get('/api/rooms?search=ada');
+
+      expect(response.status).toBe(200);
+      expect(mockPrisma.room.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { title: { contains: 'ada', mode: 'insensitive' } },
+              { host: { username: { contains: 'ada', mode: 'insensitive' } } },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('should reject an unknown topic filter', async () => {
+      const response = await request(app).get('/api/rooms?topic=cooking');
+      expect(response.status).toBe(400);
+    });
   });
 
   describe('POST /api/rooms', () => {
@@ -154,6 +215,63 @@ describe('Room Routes', () => {
       expect(response.body.title).toBe('Test Room');
       expect(response.body.isPublic).toBe(true);
       expect(response.body.hasPassword).toBe(false);
+      expect(mockPrisma.room.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          title: 'Test Room',
+          topic: 'technology',
+          description: null,
+        }),
+      });
+    });
+
+    it('should store topic and description', async () => {
+      const mockRoom = {
+        id: 'room-123',
+        slug: 'abc12345',
+        title: 'Jazz Hour',
+        hostId: 'user-123',
+        status: 'waiting',
+        maxSpeakers: 10,
+        isPublic: true,
+        password: null,
+        topic: 'music',
+        description: 'Live jazz',
+        createdAt: new Date(),
+        startedAt: null,
+        endedAt: null,
+      };
+
+      mockPrisma.room.create.mockResolvedValue(mockRoom);
+      mockPrisma.roomParticipant.create.mockResolvedValue({
+        id: 'participant-123',
+        roomId: 'room-123',
+        userId: 'user-123',
+        role: 'host',
+      });
+
+      const response = await request(app)
+        .post('/api/rooms')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ title: 'Jazz Hour', topic: 'music', description: '  Live jazz  ' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.topic).toBe('music');
+      expect(response.body.description).toBe('Live jazz');
+      expect(mockPrisma.room.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          topic: 'music',
+          description: 'Live jazz',
+        }),
+      });
+    });
+
+    it('should reject an unknown topic', async () => {
+      const response = await request(app)
+        .post('/api/rooms')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ title: 'Test Room', topic: 'cooking' });
+
+      expect(response.status).toBe(400);
     });
 
     it('should create a private room with password', async () => {

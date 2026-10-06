@@ -48,6 +48,8 @@ model Room {
   maxSpeakers Int       @default(10)
   isPublic    Boolean   @default(true)
   password    String?   // For private rooms
+  topic       String?   // technology, sports, music, news, comedy, business, science, education
+  description String?
   egressId        String?   // LiveKit egress ID for recording
   recordingFileUrl String?   // S3 URL where recording will be stored
   createdAt   DateTime  @default(now())
@@ -65,6 +67,7 @@ model Room {
   @@index([hostId])
   @@index([status, isPublic, createdAt])
   @@index([isPublic, status])
+  @@index([isPublic, status, topic])
   @@map("rooms")
 }
 

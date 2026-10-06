@@ -101,20 +101,28 @@ class ApiClient {
     offset?: number;
     search?: string;
     status?: 'live' | 'waiting';
+    topic?: string;
   }): Promise<PublicRoomsResponse> {
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
     if (options?.search) params.set('search', options.search);
     if (options?.status) params.set('status', options.status);
+    if (options?.topic) params.set('topic', options.topic);
     const query = params.toString();
     return this.request<PublicRoomsResponse>(`/rooms${query ? `?${query}` : ''}`);
   }
 
-  async createRoom(title: string, isPublic: boolean = true, password?: string): Promise<Room> {
+  async createRoom(
+    title: string,
+    isPublic: boolean = true,
+    password?: string,
+    topic?: string,
+    description?: string,
+  ): Promise<Room> {
     return this.request<Room>('/rooms', {
       method: 'POST',
-      body: JSON.stringify({ title, isPublic, password }),
+      body: JSON.stringify({ title, isPublic, password, topic, description }),
     });
   }
 

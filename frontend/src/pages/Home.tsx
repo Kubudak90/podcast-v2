@@ -3,9 +3,13 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button, Modal } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuthStore, useRoomStore } from '../lib/store';
+import { ROOM_TOPICS, topicShortLabel, type RoomTopicId } from '../lib/topics';
 import type { PublicRoom } from '../types';
 
-const CATEGORIES = ['TECH', 'SPORTS', 'MUSIC', 'NEWS', 'COMEDY', 'BUSINESS'];
+const CATEGORIES: { id: RoomTopicId | 'all'; label: string }[] = [
+  { id: 'all', label: 'ALL' },
+  ...ROOM_TOPICS.map((topic) => ({ id: topic.id, label: topic.short })),
+];
 
 export function Home() {
   const navigate = useNavigate();
@@ -18,26 +22,34 @@ export function Home() {
   const [requiresPassword, setRequiresPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('TECH');
+  const [selectedTopic, setSelectedTopic] = useState<RoomTopicId | 'all'>('all');
 
   const [publicRooms, setPublicRooms] = useState<PublicRoom[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const fetchPublicRooms = useCallback(async () => {
     setIsLoadingRooms(true);
     try {
       const response = await api.getPublicRooms({
         limit: 20,
-        search: searchQuery || undefined,
+        search: debouncedSearch || undefined,
+        topic: selectedTopic === 'all' ? undefined : selectedTopic,
       });
       setPublicRooms(response.rooms);
     } catch (err) {
       console.error('Failed to fetch public rooms:', err);
+      setPublicRooms([]);
     } finally {
       setIsLoadingRooms(false);
     }
-  }, [searchQuery]);
+  }, [debouncedSearch, selectedTopic]);
 
   useEffect(() => {
     fetchPublicRooms();
@@ -164,26 +176,23 @@ export function Home() {
 
         {/* Categories */}
         <section>
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4">
             <p className="text-[10px] font-semibold tracking-[3px] text-pod-text-secondary">CATEGORIES</p>
-            <button className="text-pod-text-secondary hover:text-white transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-              </svg>
-            </button>
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             {CATEGORIES.map((cat) => (
               <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
+                key={cat.id}
+                type="button"
+                aria-pressed={selectedTopic === cat.id}
+                onClick={() => setSelectedTopic(cat.id)}
                 className={`px-4 py-2 text-xs font-semibold tracking-wider rounded-full whitespace-nowrap transition-colors ${
-                  selectedCategory === cat
+                  selectedTopic === cat.id
                     ? 'bg-pod-red text-white'
                     : 'border border-pod-border text-white hover:bg-pod-elevated'
                 }`}
               >
-                {cat}
+                {cat.label}
               </button>
             ))}
           </div>
@@ -206,15 +215,19 @@ export function Home() {
             </div>
           ) : publicRooms.length === 0 ? (
             <div className="text-center py-12 border border-pod-border rounded-xl">
-              <p className="text-pod-text-secondary mb-4">Henuz acik oda yok</p>
-              {isAuthenticated ? (
-                <Link to="/create-room">
-                  <Button>Ilk Odayi Sen Olustur</Button>
-                </Link>
-              ) : (
-                <Link to="/login">
-                  <Button>Giris Yap</Button>
-                </Link>
+              <p className="text-pod-text-secondary mb-4">
+                {selectedTopic === 'all' && !debouncedSearch ? 'Henuz acik oda yok' : 'Bu filtrede oda yok'}
+              </p>
+              {selectedTopic === 'all' && !debouncedSearch && (
+                isAuthenticated ? (
+                  <Link to="/create-room">
+                    <Button>Ilk Odayi Sen Olustur</Button>
+                  </Link>
+                ) : (
+                  <Link to="/login">
+                    <Button>Giris Yap</Button>
+                  </Link>
+                )
               )}
             </div>
           ) : (
@@ -234,10 +247,20 @@ export function Home() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-white truncate">{room.title}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-white truncate">{room.title}</h3>
+                      {topicShortLabel(room.topic) && (
+                        <span className="text-[10px] font-semibold tracking-wider text-pod-red flex-shrink-0">
+                          {topicShortLabel(room.topic)}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-pod-text-secondary mt-0.5">
                       @{room.host.username} · {room.participantCount} listeners
                     </p>
+                    {room.description && (
+                      <p className="text-xs text-pod-text-secondary mt-1 line-clamp-2">{room.description}</p>
+                    )}
                   </div>
                   <div className="w-3 h-3 bg-pod-red rounded-sm flex-shrink-0" />
                 </button>
