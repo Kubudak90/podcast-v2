@@ -1,3 +1,12 @@
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  content: string;
+  createdAt: string;
+}
+
 export interface User {
   id: string;
   username: string;
