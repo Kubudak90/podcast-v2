@@ -14,6 +14,8 @@ import { Chat } from '../components/Chat';
 import { api } from '../lib/api';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
+import { formatLiveDuration, liveStartFromStatus } from '../lib/liveClock';
+import type { StatusChangedPayload } from '../lib/socket';
 import type { Room as RoomType } from '../types';
 
 async function checkMicrophonePermission(): Promise<boolean> {
@@ -118,28 +120,34 @@ function RoomContent({ room }: { room: RoomType }) {
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const [isLive, setIsLive] = useState(room.status === 'live');
+  const [liveStartedAt, setLiveStartedAt] = useState<string | null>(room.startedAt ?? null);
+  const [isRecording, setIsRecording] = useState<boolean | null>(room.isRecording ?? null);
   const [micPermission, setMicPermission] = useState<boolean | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [elapsedTime, setElapsedTime] = useState('00:00');
 
-  // Timer
+  // Timer starts when the broadcast actually starts, including for people already in the waiting room.
   useEffect(() => {
-    if (!isLive || !room.startedAt) return;
-    const startTime = new Date(room.startedAt).getTime();
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const mins = Math.floor(elapsed / 60000);
-      const secs = Math.floor((elapsed % 60000) / 1000);
-      setElapsedTime(`${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`);
-    }, 1000);
+    if (!isLive || !liveStartedAt) {
+      setElapsedTime('00:00');
+      return;
+    }
+    const tick = () => setElapsedTime(formatLiveDuration(liveStartedAt, Date.now()));
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [isLive, room.startedAt]);
+  }, [isLive, liveStartedAt]);
 
-  const handleStatusChanged = useCallback((payload: { status: string }) => {
-    if (payload.status === 'live') setIsLive(true);
-    else if (payload.status === 'ended') navigate(`/room/${room.slug}/ended`);
+  const handleStatusChanged = useCallback((payload: StatusChangedPayload) => {
+    if (payload.status === 'live') {
+      setIsLive(true);
+      setLiveStartedAt((current) => liveStartFromStatus(current, payload, new Date().toISOString()));
+      if (typeof payload.isRecording === 'boolean') setIsRecording(payload.isRecording);
+    } else if (payload.status === 'ended') {
+      navigate(`/room/${room.slug}/ended`);
+    }
   }, [navigate, room.slug]);
 
   const handleRoleChanged = useCallback((payload: { userId: string; role: string }) => {
@@ -186,9 +194,17 @@ function RoomContent({ room }: { room: RoomType }) {
 
   const handleStartRoom = async () => {
     setIsStarting(true);
-    try { await api.startRoom(room.slug); setIsLive(true); toast.success('Yayin basladi!'); }
-    catch { toast.error('Yayin baslatilamadi'); }
-    finally { setIsStarting(false); }
+    try {
+      const updated = await api.startRoom(room.slug);
+      setIsLive(true);
+      setLiveStartedAt(updated.startedAt || new Date().toISOString());
+      if (typeof updated.isRecording === 'boolean') setIsRecording(updated.isRecording);
+      toast.success('Yayin basladi!');
+    } catch {
+      toast.error('Yayin baslatilamadi');
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   const handleEndRoom = async () => {
@@ -248,7 +264,7 @@ function RoomContent({ room }: { room: RoomType }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          {isLive && (
+          {isLive && isRecording !== false && (
             <div className="flex items-center gap-1.5 bg-pod-red px-2 py-1 rounded">
               <div className="w-2 h-2 bg-white rounded-full" />
               <span className="text-[11px] font-semibold text-white">REC</span>
@@ -280,7 +296,9 @@ function RoomContent({ room }: { room: RoomType }) {
           <div className="flex-1 border border-pod-border rounded-xl p-6">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary mb-2">DURATION</p>
             <p className="text-4xl font-bold text-white font-mono">{elapsedTime}</p>
-            <p className="text-xs text-pod-text-secondary font-mono mt-1">{isLive ? 'Recording' : 'Waiting'}</p>
+            <p className="text-xs text-pod-text-secondary font-mono mt-1">
+              {!isLive ? 'Waiting' : isRecording === false ? 'Live' : 'Recording'}
+            </p>
           </div>
         </div>
 
@@ -377,7 +395,9 @@ function RoomContent({ room }: { room: RoomType }) {
           <span className="text-7xl font-extrabold text-white leading-none">{participants.length}</span>
           <span className="text-xs font-semibold tracking-widest text-pod-text-secondary mb-3">LISTENERS</span>
         </div>
-        <p className="text-pod-text-secondary font-mono text-sm mt-4">Live for {elapsedTime}</p>
+        <p className="text-pod-text-secondary font-mono text-sm mt-4">
+          {isLive ? `Live for ${elapsedTime}` : 'Waiting to start'}
+        </p>
       </div>
 
       {/* Speaking Now */}

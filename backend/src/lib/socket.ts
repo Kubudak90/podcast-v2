@@ -385,10 +385,19 @@ export function emitParticipantLeft(roomSlug: string, userId: string) {
   });
 }
 
-export function emitRoomStatusChanged(roomSlug: string, status: string, isRecording?: boolean) {
+export function emitRoomStatusChanged(
+  roomSlug: string,
+  status: string,
+  isRecording?: boolean,
+  startedAt?: string | null,
+) {
   emitRoomUpdate(roomSlug, {
     type: 'status_changed',
-    payload: { status, isRecording },
+    payload: {
+      status,
+      isRecording,
+      ...(startedAt ? { startedAt } : {}),
+    },
   });
 }
 

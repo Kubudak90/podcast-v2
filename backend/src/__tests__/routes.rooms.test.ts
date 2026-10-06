@@ -97,7 +97,12 @@ vi.mock('../lib/socket.js', () => ({
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
 import { setParticipantCanPublish, removeRoomParticipant } from '../lib/livekit.js';
-import { emitParticipantMuted, emitParticipantRemoved, emitSpeakerUnmuteResolved } from '../lib/socket.js';
+import {
+  emitParticipantMuted,
+  emitParticipantRemoved,
+  emitRoomStatusChanged,
+  emitSpeakerUnmuteResolved,
+} from '../lib/socket.js';
 
 // Type helper for mocked prisma
 type MockFn = ReturnType<typeof vi.fn>;
@@ -514,11 +519,12 @@ describe('Room Routes', () => {
         endedAt: null,
       };
 
+      const startedAt = new Date('2026-10-06T04:00:00.000Z');
       mockPrisma.room.findUnique.mockResolvedValue(mockRoom);
       mockPrisma.room.update.mockResolvedValue({
         ...mockRoom,
         status: 'live',
-        startedAt: new Date(),
+        startedAt,
         egressId: 'mock-egress-id',
       });
 
@@ -528,6 +534,13 @@ describe('Room Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('live');
+      expect(response.body.startedAt).toBe(startedAt.toISOString());
+      expect(emitRoomStatusChanged).toHaveBeenCalledWith(
+        'abc12345',
+        'live',
+        true,
+        startedAt.toISOString(),
+      );
     });
 
     it('should reject non-host from starting room', async () => {

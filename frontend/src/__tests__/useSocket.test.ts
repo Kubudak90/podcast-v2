@@ -98,11 +98,15 @@ describe('useSocket', () => {
     act(() => {
       handler?.({
         type: 'status_changed',
-        payload: { status: 'live', isRecording: true },
+        payload: { status: 'live', isRecording: true, startedAt: '2026-10-06T04:00:00.000Z' },
       });
     });
 
-    expect(onStatusChanged).toHaveBeenCalledWith({ status: 'live', isRecording: true });
+    expect(onStatusChanged).toHaveBeenCalledWith({
+      status: 'live',
+      isRecording: true,
+      startedAt: '2026-10-06T04:00:00.000Z',
+    });
   });
 
   it('should call onRoleChanged when role changes', () => {

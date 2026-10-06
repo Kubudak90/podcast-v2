@@ -82,6 +82,7 @@ export interface ParticipantLeftPayload {
 export interface StatusChangedPayload {
   status: string;
   isRecording?: boolean;
+  startedAt?: string;
 }
 
 export interface RoleChangedPayload {

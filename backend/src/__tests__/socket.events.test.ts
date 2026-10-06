@@ -152,6 +152,19 @@ describe('Socket Event Emitters', () => {
         payload: { status: 'ended', isRecording: undefined },
       });
     });
+
+    it('should include startedAt when the room goes live', () => {
+      emitRoomStatusChanged('room-abc', 'live', true, '2026-10-06T04:00:00.000Z');
+
+      expect(mockEmit).toHaveBeenCalledWith('room:update', {
+        type: 'status_changed',
+        payload: {
+          status: 'live',
+          isRecording: true,
+          startedAt: '2026-10-06T04:00:00.000Z',
+        },
+      });
+    });
   });
 
   describe('emitParticipantRoleChanged', () => {
