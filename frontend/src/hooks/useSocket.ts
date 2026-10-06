@@ -13,6 +13,10 @@ import type {
   StatusChangedPayload,
   RoleChangedPayload,
   RecordingErrorPayload,
+  ParticipantMutedPayload,
+  ParticipantRemovedPayload,
+  UnmuteRequestedPayload,
+  UnmuteResolvedPayload,
 } from '../lib/socket';
 import { useAuthStore } from '../lib/store';
 
@@ -23,10 +27,25 @@ interface UseSocketOptions {
   onStatusChanged?: (payload: StatusChangedPayload) => void;
   onRoleChanged?: (payload: RoleChangedPayload) => void;
   onRecordingError?: (payload: RecordingErrorPayload) => void;
+  onParticipantMuted?: (payload: ParticipantMutedPayload) => void;
+  onParticipantRemoved?: (payload: ParticipantRemovedPayload) => void;
+  onUnmuteRequested?: (payload: UnmuteRequestedPayload) => void;
+  onUnmuteResolved?: (payload: UnmuteResolvedPayload) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}) {
-  const { roomSlug, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError } = options;
+  const {
+    roomSlug,
+    onParticipantJoined,
+    onParticipantLeft,
+    onStatusChanged,
+    onRoleChanged,
+    onRecordingError,
+    onParticipantMuted,
+    onParticipantRemoved,
+    onUnmuteRequested,
+    onUnmuteResolved,
+  } = options;
   const { isAuthenticated } = useAuthStore();
 
   useEffect(() => {
@@ -51,6 +70,18 @@ export function useSocket(options: UseSocketOptions = {}) {
         case 'recording_stopped':
           onRecordingError?.(event.payload as RecordingErrorPayload);
           break;
+        case 'participant_muted':
+          onParticipantMuted?.(event.payload as ParticipantMutedPayload);
+          break;
+        case 'participant_removed':
+          onParticipantRemoved?.(event.payload as ParticipantRemovedPayload);
+          break;
+        case 'speaker_unmute_requested':
+          onUnmuteRequested?.(event.payload as UnmuteRequestedPayload);
+          break;
+        case 'speaker_unmute_resolved':
+          onUnmuteResolved?.(event.payload as UnmuteResolvedPayload);
+          break;
       }
     };
 
@@ -59,7 +90,7 @@ export function useSocket(options: UseSocketOptions = {}) {
     return () => {
       socket.off('room:update', handleRoomUpdate);
     };
-  }, [isAuthenticated, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError]);
+  }, [isAuthenticated, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError, onParticipantMuted, onParticipantRemoved, onUnmuteRequested, onUnmuteResolved]);
 
   // Join/leave room channel
   useEffect(() => {

@@ -255,6 +255,53 @@ describe('Room Routes', () => {
       expect(response.body.title).toBe('Test Room');
     });
 
+    it('includes mutedByHost on active participants', async () => {
+      const mockRoom = {
+        id: 'room-123',
+        slug: 'abc12345',
+        title: 'Test Room',
+        hostId: 'user-123',
+        status: 'live',
+        maxSpeakers: 10,
+        isPublic: true,
+        password: null,
+        createdAt: new Date(),
+        startedAt: new Date(),
+        endedAt: null,
+      };
+
+      mockPrisma.room.findUnique.mockResolvedValue(mockRoom);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        username: 'testuser',
+        avatarUrl: null,
+      });
+      mockPrisma.roomParticipant.findFirst.mockResolvedValue({ id: 'self' });
+      mockPrisma.roomParticipant.findMany.mockResolvedValue([
+        {
+          id: 'p1',
+          roomId: 'room-123',
+          userId: 'user-9',
+          role: 'speaker',
+          mutedByHost: true,
+          joinedAt: new Date('2026-01-01T00:00:00.000Z'),
+          user: { id: 'user-9', username: 'ada', avatarUrl: null },
+        },
+      ]);
+
+      const response = await request(app)
+        .get('/api/rooms/abc12345')
+        .set('Authorization', `Bearer ${validToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.participants[0]).toMatchObject({
+        userId: 'user-9',
+        username: 'ada',
+        role: 'speaker',
+        mutedByHost: true,
+      });
+    });
+
     it('should return 404 for non-existent room', async () => {
       mockPrisma.room.findUnique.mockResolvedValue(null);
 

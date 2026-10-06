@@ -21,6 +21,19 @@ export interface Room {
   endedAt?: string;
 }
 
+export interface RoomMember {
+  id: string;
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  role: 'host' | 'speaker' | 'listener';
+  mutedByHost: boolean;
+}
+
+export interface RoomDetails extends Room {
+  participants: RoomMember[];
+}
+
 export interface Participant {
   id: string;
   roomId: string;

@@ -210,6 +210,7 @@ router.get('/:slug', async (req: AuthRequest<{ slug: string }>, res: Response) =
         username: p.user.username,
         avatarUrl: p.user.avatarUrl,
         role: p.role,
+        mutedByHost: p.mutedByHost,
         joinedAt: p.joinedAt.toISOString(),
       })),
     });

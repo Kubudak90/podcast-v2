@@ -11,10 +11,12 @@ import { Track } from 'livekit-client';
 import { Button, VolumeSlider, AudioLevelMeter } from '../components/UI';
 import { toast } from '../components/Toast';
 import { Chat } from '../components/Chat';
+import { HostModerationBar, UnmuteRequestList } from '../components/HostModeration';
 import { api } from '../lib/api';
+import { requestUnmute } from '../lib/socket';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
-import type { Room as RoomType } from '../types';
+import type { Room as RoomType, RoomMember } from '../types';
 
 async function checkMicrophonePermission(): Promise<boolean> {
   try {
@@ -30,10 +32,14 @@ async function checkMicrophonePermission(): Promise<boolean> {
 function ParticipantTile({
   participant,
   isLocal = false,
+  hostMuted = false,
+  onManage,
   onVolumeChange
 }: {
   participant: ReturnType<typeof useParticipants>[0];
   isLocal?: boolean;
+  hostMuted?: boolean;
+  onManage?: () => void;
   onVolumeChange?: (volume: number) => void;
 }) {
   const tracks = useTracks([Track.Source.Microphone], { onlySubscribed: true });
@@ -94,8 +100,20 @@ function ParticipantTile({
         @{participant.identity}
       </span>
       <span className={`text-[10px] font-semibold tracking-wider ${isSpeaking ? 'text-pod-red' : 'text-pod-text-secondary'}`}>
-        {isSpeaking ? 'SPEAKING' : isMuted ? 'MUTED' : 'HOST'}
+        {isSpeaking ? 'SPEAKING' : hostMuted ? 'HOST MUTE' : isMuted ? 'MUTED' : 'HOST'}
       </span>
+      {onManage && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onManage();
+          }}
+          className="min-h-11 px-2 text-[10px] font-semibold tracking-wider text-pod-text-secondary"
+        >
+          MANAGE
+        </button>
+      )}
 
       {!isLocal && showVolumeControl && (
         <div
@@ -112,7 +130,7 @@ function ParticipantTile({
   );
 }
 
-function RoomContent({ room }: { room: RoomType }) {
+export function RoomContent({ room, onLocalRemoved }: { room: RoomType; onLocalRemoved: () => void }) {
   const navigate = useNavigate();
   const { isHost, isMuted, currentRoomPassword, setIsMuted, setIsSpeaker, reset } = useRoomStore();
   const participants = useParticipants();
@@ -123,6 +141,13 @@ function RoomContent({ room }: { room: RoomType }) {
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [elapsedTime, setElapsedTime] = useState('00:00');
+  const [members, setMembers] = useState<RoomMember[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [moderating, setModerating] = useState(false);
+  const [mutedByHost, setMutedByHost] = useState(false);
+  const [unmutePending, setUnmutePending] = useState(false);
+  const [unmuteRequests, setUnmuteRequests] = useState<{ userId: string; username: string }[]>([]);
 
   // Timer
   useEffect(() => {
@@ -142,6 +167,20 @@ function RoomContent({ room }: { room: RoomType }) {
     else if (payload.status === 'ended') navigate(`/room/${room.slug}/ended`);
   }, [navigate, room.slug]);
 
+  const refreshMembers = useCallback(async () => {
+    try {
+      const detail = await api.getRoom(room.slug);
+      setMembers(detail.participants ?? []);
+      const me = useAuthStore.getState().user?.id;
+      const mine = detail.participants?.find((member) => member.userId === me);
+      if (mine) setMutedByHost(mine.mutedByHost);
+    } catch (err) {
+      console.error('Failed to load room members:', err);
+    }
+  }, [room.slug]);
+
+  useEffect(() => { void refreshMembers(); }, [refreshMembers]);
+
   const handleRoleChanged = useCallback((payload: { userId: string; role: string }) => {
     const currentUserId = useAuthStore.getState().user?.id;
     if (payload.userId === currentUserId) {
@@ -149,17 +188,80 @@ function RoomContent({ room }: { room: RoomType }) {
       setIsSpeaker(newIsSpeaker);
       toast.info(newIsSpeaker ? 'Konusmaci oldun!' : 'Dinleyici moduna aldiniz');
     }
-  }, [setIsSpeaker]);
+    void refreshMembers();
+  }, [setIsSpeaker, refreshMembers]);
 
   const handleRecordingError = useCallback((payload: { error: string }) => {
     toast.error(payload.error);
   }, []);
+
+  const handleParticipantMuted = useCallback(async (payload: { userId: string; mutedByHost: boolean }) => {
+    setMembers((current) => current.map((member) => (
+      member.userId === payload.userId ? { ...member, mutedByHost: payload.mutedByHost } : member
+    )));
+    const me = useAuthStore.getState().user?.id;
+    if (payload.userId !== me) return;
+    setMutedByHost(payload.mutedByHost);
+    if (payload.mutedByHost) {
+      setUnmutePending(false);
+      toast.info('Host mikrofonunu kapatti');
+      try { await localParticipant?.setMicrophoneEnabled(false); } catch { /* publish already revoked */ }
+    }
+  }, [localParticipant]);
+
+  const handleParticipantRemoved = useCallback((payload: { userId: string }) => {
+    const me = useAuthStore.getState().user?.id;
+    if (payload.userId === me) {
+      onLocalRemoved();
+      toast.error('Host seni odadan cikardi');
+      reset();
+      navigate('/');
+      return;
+    }
+    setMembers((current) => current.filter((member) => member.userId !== payload.userId));
+    setUnmuteRequests((current) => current.filter((request) => request.userId !== payload.userId));
+    setSelectedUserId((current) => (current === payload.userId ? null : current));
+  }, [navigate, reset, onLocalRemoved]);
+
+  const handleUnmuteRequested = useCallback((payload: { userId: string; username: string }) => {
+    if (!useRoomStore.getState().isHost) return;
+    setUnmuteRequests((current) => {
+      const rest = current.filter((request) => request.userId !== payload.userId);
+      return [...rest, { userId: payload.userId, username: payload.username }];
+    });
+  }, []);
+
+  const handleUnmuteResolved = useCallback(async (payload: { userId: string }) => {
+    setUnmuteRequests((current) => current.filter((request) => request.userId !== payload.userId));
+    setMembers((current) => current.map((member) => (
+      member.userId === payload.userId ? { ...member, mutedByHost: false } : member
+    )));
+    const me = useAuthStore.getState().user?.id;
+    if (payload.userId !== me) return;
+    setMutedByHost(false);
+    setUnmutePending(false);
+    try {
+      await localParticipant?.setMicrophoneEnabled(true);
+      setIsMuted(false);
+      toast.success('Mikrofonun acildi');
+    } catch {
+      toast.info('Host konusmana izin verdi');
+    }
+  }, [localParticipant, setIsMuted]);
+
+  const handleRosterChanged = useCallback(() => { void refreshMembers(); }, [refreshMembers]);
 
   useSocket({
     roomSlug: room.slug,
     onStatusChanged: handleStatusChanged,
     onRoleChanged: handleRoleChanged,
     onRecordingError: handleRecordingError,
+    onParticipantJoined: handleRosterChanged,
+    onParticipantLeft: handleRosterChanged,
+    onParticipantMuted: handleParticipantMuted,
+    onParticipantRemoved: handleParticipantRemoved,
+    onUnmuteRequested: handleUnmuteRequested,
+    onUnmuteResolved: handleUnmuteResolved,
   });
 
   useEffect(() => { checkMicrophonePermission().then(setMicPermission); }, []);
@@ -169,6 +271,13 @@ function RoomContent({ room }: { room: RoomType }) {
   }, [localParticipant, localParticipant?.isMicrophoneEnabled, setIsMuted]);
 
   const handleToggleMute = async () => {
+    if (mutedByHost) {
+      if (unmutePending) return;
+      requestUnmute(room.slug);
+      setUnmutePending(true);
+      toast.info('Konusma izni istendi');
+      return;
+    }
     if (!localParticipant) return;
     if (!micPermission) {
       const hasPermission = await checkMicrophonePermission();
@@ -206,6 +315,75 @@ function RoomContent({ room }: { room: RoomType }) {
     reset();
     navigate('/');
   };
+
+  const myUserId = useAuthStore.getState().user?.id;
+  const selectedMember = members.find((member) => member.userId === selectedUserId) ?? null;
+
+  const memberFor = (identity: string) => members.find((member) => member.username === identity);
+
+  const runModeration = async (action: 'mute' | 'unmute' | 'remove', member: RoomMember) => {
+    setModerating(true);
+    try {
+      if (action === 'mute') await api.muteParticipant(room.slug, member.userId);
+      else if (action === 'unmute') await api.unmuteParticipant(room.slug, member.userId);
+      else await api.removeParticipant(room.slug, member.userId);
+      if (action === 'mute') {
+        setMembers((current) => current.map((item) => (
+          item.userId === member.userId ? { ...item, mutedByHost: true } : item
+        )));
+      }
+      if (action === 'unmute') {
+        setMembers((current) => current.map((item) => (
+          item.userId === member.userId ? { ...item, mutedByHost: false } : item
+        )));
+        setUnmuteRequests((current) => current.filter((request) => request.userId !== member.userId));
+      }
+      if (action === 'remove') {
+        setMembers((current) => current.filter((item) => item.userId !== member.userId));
+        setSelectedUserId(null);
+        setConfirmRemove(false);
+      }
+      toast.success(action === 'remove' ? 'Katilimci cikarildi' : action === 'mute' ? 'Mikrofon kapatildi' : 'Mikrofon acildi');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Islem basarisiz');
+    } finally {
+      setModerating(false);
+    }
+  };
+
+  const allowUnmute = async (userId: string) => {
+    setModerating(true);
+    try {
+      await api.unmuteParticipant(room.slug, userId);
+      setUnmuteRequests((current) => current.filter((request) => request.userId !== userId));
+      setMembers((current) => current.map((item) => (
+        item.userId === userId ? { ...item, mutedByHost: false } : item
+      )));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Izin verilemedi');
+    } finally {
+      setModerating(false);
+    }
+  };
+
+  const renderParticipant = (participant: ReturnType<typeof useParticipants>[0]) => {
+    const member = memberFor(participant.identity);
+    const canManage = isHost && member && member.userId !== myUserId && member.role !== 'host';
+    return (
+      <ParticipantTile
+        key={participant.identity}
+        participant={participant}
+        isLocal={participant.identity === localParticipant?.identity}
+        hostMuted={member?.mutedByHost ?? false}
+        onManage={canManage ? () => {
+          setConfirmRemove(false);
+          setSelectedUserId((current) => (current === member.userId ? null : member.userId));
+        } : undefined}
+      />
+    );
+  };
+
+  const micLabel = mutedByHost ? (unmutePending ? 'REQUESTED' : 'ASK TO SPEAK') : (isMuted ? 'MIC OFF' : 'MIC ON');
 
   const copyLink = async () => {
     const roomUrl = `${window.location.origin}/room/${room.slug}`;
@@ -291,15 +469,31 @@ function RoomContent({ room }: { room: RoomType }) {
             <span className="text-pod-red text-xs font-medium">{participants.length}/10</span>
           </div>
           <div className="flex gap-6 overflow-x-auto no-scrollbar">
-            {participants.map((p) => (
-              <ParticipantTile
-                key={p.identity}
-                participant={p}
-                isLocal={p.identity === localParticipant?.identity}
-              />
-            ))}
+            {participants.map(renderParticipant)}
           </div>
         </div>
+
+        {selectedMember && (
+          <HostModerationBar
+            member={selectedMember}
+            busy={moderating}
+            confirmRemove={confirmRemove}
+            onMute={() => { void runModeration('mute', selectedMember); }}
+            onUnmute={() => { void runModeration('unmute', selectedMember); }}
+            onRemove={() => {
+              if (!confirmRemove) {
+                setConfirmRemove(true);
+                return;
+              }
+              void runModeration('remove', selectedMember);
+            }}
+          />
+        )}
+        <UnmuteRequestList
+          requests={unmuteRequests}
+          busy={moderating}
+          onAllow={(userId) => { void allowUnmute(userId); }}
+        />
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -315,7 +509,7 @@ function RoomContent({ room }: { room: RoomType }) {
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
             </svg>
-            {isMuted ? 'MIC OFF' : 'MIC ON'}
+            {micLabel}
           </Button>
 
           {!isLive ? (
@@ -386,17 +580,23 @@ function RoomContent({ room }: { room: RoomType }) {
           <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary">SPEAKING NOW</p>
         </div>
         <div className="flex justify-center gap-6">
-          {participants.map((p) => (
-            <ParticipantTile
-              key={p.identity}
-              participant={p}
-              isLocal={p.identity === localParticipant?.identity}
-            />
-          ))}
+          {participants.map(renderParticipant)}
         </div>
       </div>
 
       <div className="flex-1" />
+
+      {mutedByHost && (
+        <div className="px-6 pb-4">
+          <Button
+            variant="secondary"
+            className="w-full h-14"
+            onClick={() => { void handleToggleMute(); }}
+          >
+            {unmutePending ? 'REQUESTED' : 'ASK TO SPEAK'}
+          </Button>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="px-6 pb-6 safe-area-pb flex gap-4">
@@ -457,6 +657,7 @@ export function Room() {
   const [passwordError, setPasswordError] = useState('');
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressLiveKitError = useRef(false);
 
   const handleConnected = useCallback(() => {}, []);
 
@@ -623,6 +824,7 @@ export function Room() {
       video={false}
       onConnected={handleConnected}
       onError={(error) => {
+        if (suppressLiveKitError.current) return;
         console.error('LiveKit error:', error);
         setError(`Baglanti hatasi: ${error.message}`);
       }}
@@ -634,7 +836,10 @@ export function Room() {
         dynacast: true,
       }}
     >
-      <RoomContent room={room} />
+      <RoomContent
+        room={room}
+        onLocalRemoved={() => { suppressLiveKitError.current = true; }}
+      />
     </LiveKitRoom>
   );
 }
