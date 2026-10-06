@@ -797,7 +797,12 @@ router.get('/:slug/recordings', async (req: AuthRequest<{ slug: string }>, res: 
       recordings.map((r: typeof recordings[number]) => ({
         id: r.id,
         roomId: r.roomId,
+        ownerId: r.ownerId,
         fileUrl: r.fileUrl,
+        title: r.title,
+        description: r.description,
+        isPublic: r.isPublic,
+        shareSlug: r.shareSlug,
         durationSeconds: r.durationSeconds || 0,
         fileSizeBytes: Number(r.fileSizeBytes) || 0,
         format: r.format,

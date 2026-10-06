@@ -37,6 +37,7 @@ export interface Participant {
 export interface Recording {
   id: string;
   roomId: string;
+  ownerId?: string | null;
   fileUrl: string;
   durationSeconds: number;
   fileSizeBytes: number;

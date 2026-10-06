@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { toast } from './Toast';
 import type { Recording } from '../types';
 
 interface ShareModalProps {
@@ -15,6 +16,13 @@ export function ShareModal({ recording, isOpen, onClose, onUpdate }: ShareModalP
   const [isPublic, setIsPublic] = useState(recording.isPublic || false);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setTitle(recording.title || '');
+    setDescription(recording.description || '');
+    setIsPublic(Boolean(recording.isPublic));
+    setCopied(false);
+  }, [recording]);
 
   if (!isOpen) return null;
 
@@ -36,6 +44,8 @@ export function ShareModal({ recording, isOpen, onClose, onUpdate }: ShareModalP
       }
     } catch (error) {
       console.error('Failed to update recording:', error);
+      const message = error instanceof Error && error.message ? error.message : 'Paylasim kaydedilemedi';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
