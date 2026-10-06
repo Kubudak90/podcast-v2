@@ -137,6 +137,25 @@ describe('useSocket', () => {
     expect(onRecordingError).toHaveBeenCalledWith({ error: 'Kayit baslatilamadi' });
   });
 
+  it('should call onListenerCount when listener_count arrives', () => {
+    const onListenerCount = vi.fn();
+    renderHook(() => useSocket({ onListenerCount }));
+
+    const handler = mockSocket.on.mock.calls.find((call) => call[0] === 'room:update')?.[1];
+
+    act(() => {
+      handler?.({
+        type: 'listener_count',
+        payload: { count: 4, sample: [{ userId: 'u2', username: 'ada', avatarUrl: null }] },
+      });
+    });
+
+    expect(onListenerCount).toHaveBeenCalledWith({
+      count: 4,
+      sample: [{ userId: 'u2', username: 'ada', avatarUrl: null }],
+    });
+  });
+
   it('should call onParticipantLeft when participant leaves', () => {
     const onParticipantLeft = vi.fn();
     renderHook(() => useSocket({ onParticipantLeft }));

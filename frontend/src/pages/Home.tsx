@@ -48,22 +48,6 @@ export function Home() {
     return () => clearInterval(interval);
   }, [fetchPublicRooms]);
 
-  const requestMicPermission = useCallback(async (): Promise<boolean> => {
-    try {
-      if (navigator.permissions) {
-        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-        if (result.state === 'granted') return true;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-      return true;
-    } catch (err) {
-      console.error('Mikrofon izni alinamadi:', err);
-      setError('Mikrofon izni gerekli.');
-      return false;
-    }
-  }, []);
-
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomSlug.trim()) return;
@@ -72,9 +56,6 @@ export function Home() {
     setError('');
 
     try {
-      const hasPermission = await requestMicPermission();
-      if (!hasPermission) { setIsLoading(false); return; }
-
       const slug = roomSlug.trim().replace(/.*\/room\//, '');
       const { room, participant } = await api.joinRoom(slug, joinPassword || undefined);
       setCurrentRoom(room);
@@ -109,9 +90,6 @@ export function Home() {
     setError('');
 
     try {
-      const hasPermission = await requestMicPermission();
-      if (!hasPermission) { setIsLoading(false); return; }
-
       const { room: joinedRoom, participant } = await api.joinRoom(room.slug);
       setCurrentRoom(joinedRoom);
       setCurrentRoomPassword(null);
@@ -199,6 +177,10 @@ export function Home() {
               </Link>
             )}
           </div>
+
+          {error && (
+            <p className="text-pod-red text-sm mb-3">{error}</p>
+          )}
 
           {isLoadingRooms ? (
             <div className="flex justify-center py-12">

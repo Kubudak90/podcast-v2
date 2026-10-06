@@ -12,6 +12,11 @@ export interface Room {
   slug: string;
   title: string;
   hostId: string;
+  host?: {
+    id: string;
+    username: string;
+    avatarUrl?: string | null;
+  } | null;
   status: 'waiting' | 'live' | 'ended';
   maxSpeakers: number;
   isPublic: boolean;

@@ -89,6 +89,13 @@ components:
         slug: { type: string }
         title: { type: string }
         hostId: { type: string, format: uuid }
+        host:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            username: { type: string }
+            avatarUrl: { type: string, nullable: true }
         status: { type: string, enum: [waiting, live, ended] }
         maxSpeakers: { type: integer }
         isPublic: { type: boolean }
