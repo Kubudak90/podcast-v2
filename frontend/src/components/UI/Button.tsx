@@ -13,7 +13,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      'inline-flex items-center justify-center font-semibold transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
+      'inline-flex items-center justify-center font-semibold transition-colors duration-200 min-h-11 min-w-11 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
 
     const variants = {
       primary: 'bg-pod-red hover:bg-red-700 text-white',
@@ -32,11 +32,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
-        disabled={disabled || isLoading}
         {...props}
+        disabled={disabled || isLoading}
+        aria-busy={isLoading || undefined}
       >
         {isLoading && (
           <svg
+            aria-hidden="true"
             className="animate-spin -ml-1 mr-2 h-4 w-4"
             fill="none"
             viewBox="0 0 24 24"

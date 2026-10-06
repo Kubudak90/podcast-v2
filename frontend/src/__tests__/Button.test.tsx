@@ -71,6 +71,31 @@ describe('Button Component', () => {
       const spinner = button.querySelector('svg');
       expect(spinner).toBeInTheDocument();
       expect(spinner).toHaveClass('animate-spin');
+      expect(spinner).toHaveAttribute('aria-hidden', 'true');
+      expect(button).toHaveAttribute('aria-busy', 'true');
+    });
+
+    it('should not mark an idle button as busy', () => {
+      render(<Button>Idle</Button>);
+      expect(screen.getByRole('button')).not.toHaveAttribute('aria-busy');
+    });
+  });
+
+  describe('focus and touch target', () => {
+    it('should expose a keyboard focus ring', () => {
+      render(<Button>Focus</Button>);
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass(
+        'focus-visible:outline',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-white'
+      );
+    });
+
+    it('should keep a 44px minimum height on the small size', () => {
+      render(<Button size="sm">Small</Button>);
+      expect(screen.getByRole('button')).toHaveClass('min-h-11', 'min-w-11');
     });
   });
 
