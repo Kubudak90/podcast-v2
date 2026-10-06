@@ -75,6 +75,28 @@ function audioUploadMiddleware(req: Request, res: Response, next: (err?: unknown
   });
 }
 
+// Feed query strings like limit=-1 are truthy, so a bare `Number(x) || fallback`
+// would hand Prisma a negative take/skip and 500 the public feed.
+function clampInt(raw: unknown, min: number, fallback: number, max = Number.POSITIVE_INFINITY): number {
+  const n = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(n)) return fallback;
+  const whole = Math.floor(n);
+  if (whole < min) return fallback;
+  return Math.min(whole, max);
+}
+
+// Same rule as the public page: unpublished, moderated, or blocked-owner
+// recordings stay 404. The download route used to check only isPublic.
+async function recordingIsHiddenFromViewer(
+  recording: { isPublic: boolean; isHidden: boolean; ownerId: string | null } | null,
+  viewerId: string | undefined,
+): Promise<boolean> {
+  if (!recording?.isPublic || recording.isHidden) return true;
+  if (!viewerId || !recording.ownerId) return false;
+  const blocked = await blockedUserIds(viewerId);
+  return blocked.includes(recording.ownerId);
+}
+
 async function buildRecordingAccessUrl(
   recordingId: string,
   fileUrl: string,
@@ -428,8 +450,7 @@ router.get('/public/:shareSlug', optionalAuthMiddleware, async (req: AuthRequest
       },
     });
 
-    const blocked = req.userId ? await blockedUserIds(req.userId) : [];
-    if (!recording || !recording.isPublic || recording.isHidden || (recording.ownerId && blocked.includes(recording.ownerId))) {
+    if (!recording || (await recordingIsHiddenFromViewer(recording, req.userId))) {
       return res.status(404).json({ message: 'Recording not found' });
     }
 
@@ -468,13 +489,16 @@ router.get('/public/:shareSlug/download', optionalAuthMiddleware, async (req: Au
       where: { shareSlug },
     });
 
-    if (!recording || !recording.isPublic) {
+    if (!recording || (await recordingIsHiddenFromViewer(recording, req.userId))) {
       return res.status(404).json({ message: 'Recording not found' });
     }
 
     const url = await buildRecordingAccessUrl(recording.id, recording.fileUrl, disposition);
     res.json({ url });
   } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') {
+      return res.status(404).json({ message: 'Recording file not available yet' });
+    }
     logError(error as Error, { action: 'get_public_download_url' });
     res.status(500).json({ message: 'Internal server error' });
   }
@@ -483,8 +507,8 @@ router.get('/public/:shareSlug/download', optionalAuthMiddleware, async (req: Au
 // GET /api/recordings/feed - Get public recordings feed
 router.get('/feed', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const limit = Math.min(Number(req.query.limit) || 20, 50);
-    const offset = Number(req.query.offset) || 0;
+    const limit = clampInt(req.query.limit, 1, 20, 50);
+    const offset = clampInt(req.query.offset, 0, 0);
     const blocked = req.userId ? await blockedUserIds(req.userId) : [];
 
     const [recordings, total] = await Promise.all([
