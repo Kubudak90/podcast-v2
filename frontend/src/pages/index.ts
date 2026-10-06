@@ -1,5 +1,7 @@
 export { Home } from './Home';
 export { Login } from './Login';
+export { ForgotPassword } from './ForgotPassword';
+export { ResetPassword } from './ResetPassword';
 export { SignUp } from './SignUp';
 export { Room } from './Room';
 export { RoomEnded } from './RoomEnded';

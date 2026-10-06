@@ -20,6 +20,15 @@ export const oauthSchema = z.object({
   token: z.string().min(1, 'Token is required'),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().email('Invalid email'),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(20, 'Invalid reset link').max(200),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
 // Room schemas
 export const createRoomSchema = z.object({
   title: z

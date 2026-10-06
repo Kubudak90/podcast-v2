@@ -5,9 +5,13 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, generateToken, AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
-import { registerSchema, loginSchema, oauthSchema, updateProfileSchema } from '../lib/validation.js';
+import { registerSchema, loginSchema, oauthSchema, updateProfileSchema, forgotPasswordSchema, resetPasswordSchema } from '../lib/validation.js';
 import { logAuth, logError } from '../lib/logger.js';
 import { deleteStoredFile } from '../lib/storage.js';
+import { devResetLinkEnabled, isSmtpConfigured, sendPasswordResetEmail } from '../lib/mail.js';
+import { PASSWORD_RESET_TTL_MS, buildResetUrl, generateResetToken, hashResetToken } from '../lib/passwordReset.js';
+
+const RESET_SENT_MESSAGE = 'If an account exists for that email, a reset link is on its way. It expires in 30 minutes.';
 
 const router = Router();
 const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || '';
@@ -72,6 +76,10 @@ router.post('/login', authLimiter, validate(loginSchema), async (req: Request, r
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({ message: 'Account suspended' });
     }
 
     const token = generateToken(user.id, user.username);
@@ -215,6 +223,97 @@ router.post('/apple', authLimiter, validate(oauthSchema), async (req: Request, r
   } catch (error) {
     logError(error as Error, { action: 'apple_auth' });
     res.status(401).json({ message: 'Apple authentication failed' });
+  }
+});
+
+// POST /api/auth/forgot-password
+router.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), async (req: Request, res: Response) => {
+  try {
+    const smtp = isSmtpConfigured();
+    const devLink = devResetLinkEnabled();
+
+    if (!smtp && !devLink) {
+      return res.json({
+        message: 'Password reset email is not configured',
+        emailDelivery: 'unavailable',
+      });
+    }
+
+    const email = String(req.body.email).trim();
+    const user = await prisma.user.findUnique({ where: { email } });
+    const recipient = user?.email;
+
+    if (!user || user.isBanned || !recipient) {
+      return res.json({
+        message: RESET_SENT_MESSAGE,
+        emailDelivery: smtp ? 'sent' : 'dev',
+      });
+    }
+
+    const token = generateResetToken();
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+    await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashResetToken(token),
+        expiresAt,
+      },
+    });
+
+    const resetUrl = buildResetUrl(token);
+
+    if (smtp) {
+      try {
+        await sendPasswordResetEmail(recipient, resetUrl);
+      } catch (error) {
+        logError(error as Error, { action: 'password_reset_email', userId: user.id });
+      }
+      return res.json({ message: RESET_SENT_MESSAGE, emailDelivery: 'sent' });
+    }
+
+    return res.json({ message: RESET_SENT_MESSAGE, emailDelivery: 'dev', devResetUrl: resetUrl });
+  } catch (error) {
+    logError(error as Error, { action: 'forgot_password' });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', authLimiter, validate(resetPasswordSchema), async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body as { token: string; password: string };
+    const row = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashResetToken(token.trim()) },
+      include: { user: true },
+    });
+
+    if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) {
+      return res.status(400).json({ message: 'Invalid or expired reset link' });
+    }
+
+    if (row.user.isBanned) {
+      return res.status(403).json({ message: 'Account suspended' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: row.userId },
+        data: { password: hashedPassword },
+      });
+      await tx.passwordResetToken.update({
+        where: { id: row.id },
+        data: { usedAt: new Date() },
+      });
+    });
+
+    const jwt = generateToken(row.user.id, row.user.username);
+    logAuth('password_reset', row.user.id, row.user.username, true);
+    res.json({ user: formatUser(row.user), token: jwt });
+  } catch (error) {
+    logError(error as Error, { action: 'reset_password' });
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 

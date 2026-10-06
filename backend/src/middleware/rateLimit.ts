@@ -12,7 +12,7 @@ export const apiLimiter = rateLimit({
 // Auth rate limiter (stricter)
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // 20 auth attempts per window
+  max: process.env.NODE_ENV === 'test' ? 1000 : 20,
   message: { message: 'Too many authentication attempts, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,

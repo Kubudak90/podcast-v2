@@ -43,7 +43,7 @@ export function logError(error: Error, context?: Record<string, unknown>) {
 
 // Auth logging helper
 export function logAuth(
-  action: 'login' | 'register' | 'logout' | 'profile_update' | 'google_login' | 'apple_login',
+  action: 'login' | 'register' | 'logout' | 'profile_update' | 'google_login' | 'apple_login' | 'password_reset',
   userId: string,
   username: string,
   success: boolean

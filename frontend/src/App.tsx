@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Header, TabBar } from './components/Layout';
-import { Home, Login, SignUp, Room, RoomEnded, Profile, Listen, CreateRoom, Library } from './pages';
+import { Home, Login, SignUp, Room, RoomEnded, Profile, Listen, CreateRoom, Library, ForgotPassword, ResetPassword } from './pages';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { useEffect } from 'react';
@@ -31,6 +31,8 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/signup" element={<SignUp />} />
               <Route path="/create-room" element={<CreateRoom />} />
               <Route path="/room/:slug" element={<Room />} />

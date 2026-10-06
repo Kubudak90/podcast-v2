@@ -35,8 +35,20 @@ vi.mock('../lib/prisma.js', () => ({
       findMany: vi.fn(),
       create: vi.fn(),
     },
+    passwordResetToken: {
+      deleteMany: vi.fn(),
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
+}));
+
+vi.mock('../lib/mail.js', () => ({
+  isSmtpConfigured: vi.fn(() => false),
+  devResetLinkEnabled: vi.fn(() => false),
+  sendPasswordResetEmail: vi.fn(),
 }));
 
 vi.mock('../lib/livekit.js', () => ({
@@ -61,6 +73,7 @@ vi.mock('../lib/socket.js', () => ({
 // Import after mocks are defined
 import { createApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
+import { devResetLinkEnabled, isSmtpConfigured, sendPasswordResetEmail } from '../lib/mail.js';
 
 // Type helper for mocked prisma
 type MockedPrisma = typeof prisma & {
@@ -73,6 +86,12 @@ type MockedPrisma = typeof prisma & {
   };
   recording: {
     findMany: ReturnType<typeof vi.fn>;
+  };
+  passwordResetToken: {
+    deleteMany: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
   $transaction: ReturnType<typeof vi.fn>;
 };
@@ -216,6 +235,223 @@ describe('Auth Routes', () => {
         .send({ email: 'test@example.com' });
 
       expect(response.status).toBe(400);
+    });
+
+    it('should reject a banned user after the password matches', async () => {
+      const password = 'pass1234';
+      const bcrypt = await import('bcryptjs');
+      const hashedPassword = await bcrypt.default.hash(password, 12);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        username: 'testuser',
+        email: 'test@example.com',
+        password: hashedPassword,
+        isBanned: true,
+        avatarUrl: null,
+        bio: null,
+        createdAt: new Date(),
+      });
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password });
+
+      expect(response.status).toBe(403);
+      expect(response.body.message).toBe('Account suspended');
+    });
+  });
+
+  describe('POST /api/auth/forgot-password', () => {
+    const mail = {
+      isSmtpConfigured: isSmtpConfigured as ReturnType<typeof vi.fn>,
+      devResetLinkEnabled: devResetLinkEnabled as ReturnType<typeof vi.fn>,
+      sendPasswordResetEmail: sendPasswordResetEmail as ReturnType<typeof vi.fn>,
+    };
+
+    beforeEach(() => {
+      mail.isSmtpConfigured.mockReturnValue(false);
+      mail.devResetLinkEnabled.mockReturnValue(false);
+      mail.sendPasswordResetEmail.mockResolvedValue(undefined);
+    });
+
+    it('does not create a token when email delivery is unavailable', async () => {
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'user@example.com' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.emailDelivery).toBe('unavailable');
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.passwordResetToken.create).not.toHaveBeenCalled();
+    });
+
+    it('returns the same body when the email is unknown', async () => {
+      mail.devResetLinkEnabled.mockReturnValue(true);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'missing@example.com' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.emailDelivery).toBe('dev');
+      expect(response.body.devResetUrl).toBeUndefined();
+      expect(response.body.message).toContain('If an account exists');
+      expect(mockPrisma.passwordResetToken.create).not.toHaveBeenCalled();
+    });
+
+    it('returns a local reset link for an existing account when the dev flag is on', async () => {
+      mail.devResetLinkEnabled.mockReturnValue(true);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        email: 'user@example.com',
+        isBanned: false,
+      });
+      mockPrisma.passwordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.passwordResetToken.create.mockResolvedValue({ id: 'reset-1' });
+
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'user@example.com' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.devResetUrl).toContain('/reset-password?token=');
+      expect(mockPrisma.passwordResetToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-123' } });
+      expect(mockPrisma.passwordResetToken.create).toHaveBeenCalled();
+      expect(mail.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    it('emails the link and does not return it when SMTP is configured', async () => {
+      mail.isSmtpConfigured.mockReturnValue(true);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        email: 'user@example.com',
+        isBanned: false,
+      });
+      mockPrisma.passwordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.passwordResetToken.create.mockResolvedValue({ id: 'reset-1' });
+
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'user@example.com' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.emailDelivery).toBe('sent');
+      expect(response.body.devResetUrl).toBeUndefined();
+      expect(mail.sendPasswordResetEmail).toHaveBeenCalledWith(
+        'user@example.com',
+        expect.stringContaining('/reset-password?token=')
+      );
+    });
+
+    it('does not reveal a mail failure', async () => {
+      mail.isSmtpConfigured.mockReturnValue(true);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        email: 'user@example.com',
+        isBanned: false,
+      });
+      mockPrisma.passwordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.passwordResetToken.create.mockResolvedValue({ id: 'reset-1' });
+      mail.sendPasswordResetEmail.mockRejectedValue(new Error('smtp down'));
+
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'user@example.com' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.emailDelivery).toBe('sent');
+      expect(response.body.devResetUrl).toBeUndefined();
+    });
+  });
+
+  describe('POST /api/auth/reset-password', () => {
+    const validToken = 'a'.repeat(32);
+
+    it('rejects an unknown token', async () => {
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue(null);
+
+      const response = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: validToken, password: 'newpass1' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('Invalid or expired reset link');
+    });
+
+    it('rejects an expired token', async () => {
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'reset-1',
+        userId: 'user-123',
+        usedAt: null,
+        expiresAt: new Date(Date.now() - 1000),
+        user: { id: 'user-123', username: 'ada', email: 'ada@example.com', avatarUrl: null, bio: null, createdAt: new Date(), isBanned: false },
+      });
+
+      const response = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: validToken, password: 'newpass1' });
+
+      expect(response.status).toBe(400);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a suspended account', async () => {
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'reset-1',
+        userId: 'user-123',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-123', username: 'ada', email: 'ada@example.com', avatarUrl: null, bio: null, createdAt: new Date(), isBanned: true },
+      });
+
+      const response = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: validToken, password: 'newpass1' });
+
+      expect(response.status).toBe(403);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('updates the password and signs the user in', async () => {
+      const user = {
+        id: 'user-123',
+        username: 'ada',
+        email: 'ada@example.com',
+        avatarUrl: null,
+        bio: null,
+        createdAt: new Date(),
+        isBanned: false,
+      };
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'reset-1',
+        userId: 'user-123',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user,
+      });
+      mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof mockPrisma) => Promise<void>) => cb(mockPrisma));
+      mockPrisma.user.update.mockResolvedValue(user);
+      mockPrisma.passwordResetToken.update.mockResolvedValue({ id: 'reset-1' });
+
+      const response = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: validToken, password: 'newpass1' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.user.username).toBe('ada');
+      expect(response.body.token).toBeDefined();
+      expect(response.body.user.password).toBeUndefined();
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { password: expect.any(String) },
+      });
+      const stored = mockPrisma.user.update.mock.calls[0][0].data.password as string;
+      expect(stored).not.toBe('newpass1');
+      expect(mockPrisma.passwordResetToken.update).toHaveBeenCalledWith({
+        where: { id: 'reset-1' },
+        data: { usedAt: expect.any(Date) },
+      });
     });
   });
 

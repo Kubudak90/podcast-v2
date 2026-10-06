@@ -6,6 +6,8 @@ import {
   joinRoomSchema,
   changeRoleSchema,
   updateProfileSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } from '../lib/validation.js';
 
 const validRegister = {
@@ -191,6 +193,19 @@ describe('Validation Schemas', () => {
         bio: null,
       });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('password reset schemas', () => {
+    it('should accept a forgot-password email and trim it', () => {
+      const result = forgotPasswordSchema.safeParse({ email: '  user@example.com  ' });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.email).toBe('user@example.com');
+    });
+
+    it('should reject a short reset token', () => {
+      const result = resetPasswordSchema.safeParse({ token: 'short', password: 'pass1234' });
+      expect(result.success).toBe(false);
     });
   });
 });
