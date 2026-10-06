@@ -21,10 +21,20 @@ export function Header() {
           </Link>
 
           <div className="flex items-center gap-3">
+            <Link
+              to="/join"
+              aria-label="Odaya katil"
+              className="w-11 h-11 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5M10.172 13.828a4 4 0 010-5.656l3-3a4 4 0 015.656 5.656l-1.5 1.5" />
+              </svg>
+            </Link>
             {isAuthenticated ? (
               <Link
                 to="/create-room"
-                className="w-10 h-10 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
+                aria-label="Oda olustur"
+                className="w-11 h-11 flex items-center justify-center border border-pod-border rounded-lg hover:bg-pod-elevated transition-colors"
               >
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
