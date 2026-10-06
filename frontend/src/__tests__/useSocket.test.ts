@@ -12,12 +12,26 @@ const mockSocket = {
   emit: vi.fn(),
 };
 
+const socketState = vi.hoisted(() => ({
+  status: 'idle' as 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected',
+  listener: null as null | ((status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected') => void),
+}));
+
 vi.mock('../lib/socket', () => ({
   connectSocket: vi.fn(() => mockSocket),
   disconnectSocket: vi.fn(),
   joinRoomChannel: vi.fn(),
   leaveRoomChannel: vi.fn(),
   getSocket: vi.fn(() => mockSocket),
+  getSocketStatus: () => socketState.status,
+  subscribeSocketStatus: (listener: (status: typeof socketState.status) => void) => {
+    socketState.listener = listener;
+    listener(socketState.status);
+    return () => {
+      if (socketState.listener === listener) socketState.listener = null;
+    };
+  },
+  retrySocketConnection: vi.fn(),
 }));
 
 describe('useSocket', () => {
@@ -161,5 +175,26 @@ describe('useSocket', () => {
     });
 
     expect(socketLib.disconnectSocket).toHaveBeenCalled();
+  });
+
+  it('should surface socket connection status', () => {
+    const { result } = renderHook(() => useSocket({ roomSlug: 'test-room' }));
+    expect(result.current.connectionStatus).toBe('idle');
+
+    act(() => {
+      socketState.listener?.('reconnecting');
+    });
+
+    expect(result.current.connectionStatus).toBe('reconnecting');
+  });
+
+  it('should retry the socket connection', () => {
+    const { result } = renderHook(() => useSocket());
+
+    act(() => {
+      result.current.retryConnection();
+    });
+
+    expect(socketLib.retrySocketConnection).toHaveBeenCalled();
   });
 });

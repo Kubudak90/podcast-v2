@@ -11,6 +11,7 @@ import { Track } from 'livekit-client';
 import { Button, VolumeSlider, AudioLevelMeter } from '../components/UI';
 import { toast } from '../components/Toast';
 import { Chat } from '../components/Chat';
+import { ConnectionBanner } from '../components/ConnectionBanner';
 import { api } from '../lib/api';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
@@ -155,7 +156,7 @@ function RoomContent({ room }: { room: RoomType }) {
     toast.error(payload.error);
   }, []);
 
-  useSocket({
+  const { connectionStatus, retryConnection } = useSocket({
     roomSlug: room.slug,
     onStatusChanged: handleStatusChanged,
     onRoleChanged: handleRoleChanged,
@@ -238,6 +239,7 @@ function RoomContent({ room }: { room: RoomType }) {
   if (isHost) {
     return (
       <div className="min-h-screen bg-pod-bg flex flex-col safe-area-pt">
+        <ConnectionBanner status={connectionStatus} onRetry={retryConnection} />
         {/* Status bar with REC */}
         <div className="flex items-center justify-between px-6 py-3">
           <button
@@ -347,6 +349,7 @@ function RoomContent({ room }: { room: RoomType }) {
   // LISTENER VIEW
   return (
     <div className="min-h-screen bg-pod-bg flex flex-col safe-area-pt">
+      <ConnectionBanner status={connectionStatus} onRetry={retryConnection} />
       {/* Header */}
       <div className="px-6 py-4">
         <div className="flex items-start justify-between">

@@ -1,10 +1,14 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import {
   connectSocket,
   disconnectSocket,
   joinRoomChannel,
   leaveRoomChannel,
   getSocket,
+  getSocketStatus,
+  subscribeSocketStatus,
+  retrySocketConnection,
+  type SocketConnectionStatus,
 } from '../lib/socket';
 import type {
   RoomUpdateEvent,
@@ -28,6 +32,7 @@ interface UseSocketOptions {
 export function useSocket(options: UseSocketOptions = {}) {
   const { roomSlug, onParticipantJoined, onParticipantLeft, onStatusChanged, onRoleChanged, onRecordingError } = options;
   const { isAuthenticated } = useAuthStore();
+  const [connectionStatus, setConnectionStatus] = useState<SocketConnectionStatus>(getSocketStatus);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -72,12 +77,20 @@ export function useSocket(options: UseSocketOptions = {}) {
     };
   }, [isAuthenticated, roomSlug]);
 
+  useEffect(() => subscribeSocketStatus(setConnectionStatus), []);
+
   const disconnect = useCallback(() => {
     disconnectSocket();
+  }, []);
+
+  const retryConnection = useCallback(() => {
+    retrySocketConnection();
   }, []);
 
   return {
     socket: getSocket(),
     disconnect,
+    connectionStatus,
+    retryConnection,
   };
 }
