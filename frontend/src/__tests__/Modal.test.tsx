@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Modal } from '../components/UI/Modal';
 
 describe('Modal Component', () => {
@@ -174,6 +176,79 @@ describe('Modal Component', () => {
       expect(container.querySelector('.bg-black\\/70')).toBeInTheDocument();
       // Content area should be present
       expect(container.querySelector('.bg-pod-elevated')).toBeInTheDocument();
+    });
+
+    it('names the dialog from its title and the close button as Kapat', () => {
+      render(
+        <Modal isOpen={true} onClose={mockOnClose} title="Odaya Katil">
+          Content
+        </Modal>
+      );
+      const dialog = screen.getByRole('dialog', { name: 'Odaya Katil' });
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(screen.getByRole('button', { name: 'Kapat' })).toBeInTheDocument();
+    });
+
+    it('names an untitled dialog Pencere and still offers Kapat', () => {
+      render(
+        <Modal isOpen={true} onClose={mockOnClose}>
+          Content
+        </Modal>
+      );
+      expect(screen.getByRole('dialog', { name: 'Pencere' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Kapat' })).toBeInTheDocument();
+    });
+
+    it('skips controls that are not shown', async () => {
+      const user = userEvent.setup();
+      render(
+        <Modal isOpen={true} onClose={mockOnClose} title="Form">
+          <input aria-label="Gizli" style={{ display: 'none' }} />
+          <button type="button">Gorunen</button>
+        </Modal>
+      );
+
+      expect(screen.getByRole('button', { name: 'Gorunen' })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Kapat' })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Gorunen' })).toHaveFocus();
+    });
+
+    it('keeps Tab inside the dialog and returns focus when it closes', async () => {
+      const user = userEvent.setup();
+
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        return (
+          <>
+            <button type="button" onClick={() => setOpen(true)}>
+              Ac
+            </button>
+            <Modal isOpen={open} onClose={() => setOpen(false)} title="Form">
+              <button type="button">Bir</button>
+              <button type="button">Iki</button>
+            </Modal>
+          </>
+        );
+      }
+
+      render(<Harness />);
+      await user.click(screen.getByRole('button', { name: 'Ac' }));
+
+      expect(screen.getByRole('button', { name: 'Bir' })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Iki' })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Kapat' })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Bir' })).toHaveFocus();
+      await user.tab({ shift: true });
+      expect(screen.getByRole('button', { name: 'Kapat' })).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Ac' })).toHaveFocus();
     });
   });
 });
