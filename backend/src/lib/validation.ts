@@ -20,6 +20,19 @@ export const oauthSchema = z.object({
   token: z.string().min(1, 'Token is required'),
 });
 
+export const ROOM_TOPIC_IDS = [
+  'technology',
+  'sports',
+  'music',
+  'news',
+  'comedy',
+  'business',
+  'science',
+  'education',
+] as const;
+
+export const roomTopicSchema = z.enum(ROOM_TOPIC_IDS);
+
 // Room schemas
 export const createRoomSchema = z.object({
   title: z
@@ -29,6 +42,8 @@ export const createRoomSchema = z.object({
   isPublic: z.boolean().optional().default(true),
   maxSpeakers: z.number().min(1).max(10).optional().default(10),
   password: z.string().min(4, 'Password must be at least 4 characters').max(50).optional(),
+  topic: roomTopicSchema.optional().default('technology'),
+  description: z.string().max(300, 'Description must be at most 300 characters').optional(),
 });
 
 export const joinRoomSchema = z.object({
@@ -80,6 +95,7 @@ export const paginationQuerySchema = z.object({
 export const roomListQuerySchema = paginationQuerySchema.extend({
   search: z.string().max(100).optional(),
   status: z.enum(['live', 'waiting']).optional(),
+  topic: roomTopicSchema.optional(),
 });
 
 // Moderation (B4)

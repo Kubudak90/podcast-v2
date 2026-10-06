@@ -14,7 +14,23 @@ import { Chat } from '../components/Chat';
 import { api } from '../lib/api';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
+import { topicShortLabel } from '../lib/topics';
 import type { Room as RoomType } from '../types';
+
+function RoomTopicLine({ room }: { room: RoomType }) {
+  const label = topicShortLabel(room.topic);
+  if (!label && !room.description) return null;
+  return (
+    <div className="mt-2 space-y-1">
+      {label && (
+        <p className="text-[10px] font-semibold tracking-[2px] text-pod-red">{label}</p>
+      )}
+      {room.description && (
+        <p className="text-sm text-pod-text-secondary">{room.description}</p>
+      )}
+    </div>
+  );
+}
 
 async function checkMicrophonePermission(): Promise<boolean> {
   try {
@@ -268,6 +284,7 @@ function RoomContent({ room }: { room: RoomType }) {
         <div className="px-6 mb-6">
           <h1 className="text-3xl font-bold text-white tracking-tight">{room.title}</h1>
           <p className="text-pod-text-secondary font-mono text-sm mt-1">Host: @{useAuthStore.getState().user?.username}</p>
+          <RoomTopicLine room={room} />
         </div>
 
         {/* Stats Cards */}
@@ -353,6 +370,7 @@ function RoomContent({ room }: { room: RoomType }) {
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">{room.title}</h1>
             <p className="text-pod-text-secondary font-mono text-sm mt-1">Host: @{room.hostId}</p>
+            <RoomTopicLine room={room} />
           </div>
           <button
             onClick={handleLeave}

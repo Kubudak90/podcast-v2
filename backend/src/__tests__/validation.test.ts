@@ -3,6 +3,7 @@ import {
   registerSchema,
   loginSchema,
   createRoomSchema,
+  roomListQuerySchema,
   joinRoomSchema,
   changeRoleSchema,
   updateProfileSchema,
@@ -81,6 +82,31 @@ describe('Validation Schemas', () => {
     it('should accept valid room with title only', () => {
       const result = createRoomSchema.safeParse({ title: 'Test Room' });
       expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.topic).toBe('technology');
+      }
+    });
+
+    it('should accept a known topic and description', () => {
+      const result = createRoomSchema.safeParse({
+        title: 'Test Room',
+        topic: 'music',
+        description: 'Live jazz hour',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject an unknown topic', () => {
+      const result = createRoomSchema.safeParse({ title: 'Test Room', topic: 'cooking' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject a description longer than 300 characters', () => {
+      const result = createRoomSchema.safeParse({
+        title: 'Test Room',
+        description: 'a'.repeat(301),
+      });
+      expect(result.success).toBe(false);
     });
 
     it('should accept room with all options', () => {
@@ -111,6 +137,18 @@ describe('Validation Schemas', () => {
         title: 'Test Room',
         maxSpeakers: 15,
       });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('roomListQuerySchema', () => {
+    it('should accept a topic filter', () => {
+      const result = roomListQuerySchema.safeParse({ topic: 'sports' });
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject an unknown topic filter', () => {
+      const result = roomListQuerySchema.safeParse({ topic: 'cooking' });
       expect(result.success).toBe(false);
     });
   });

@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuthStore, useRoomStore } from '../lib/store';
-
-const TOPICS = ['Technology', 'Sports', 'Music', 'News', 'Comedy', 'Business', 'Science', 'Education'];
+import { ROOM_TOPICS, type RoomTopicId } from '../lib/topics';
 
 export function CreateRoom() {
   const navigate = useNavigate();
@@ -12,7 +11,7 @@ export function CreateRoom() {
   const { setCurrentRoom, setCurrentRoomPassword, setIsHost, setIsSpeaker } = useRoomStore();
 
   const [roomTitle, setRoomTitle] = useState('');
-  const [topic, setTopic] = useState('Technology');
+  const [topic, setTopic] = useState<RoomTopicId>('technology');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [roomPassword, setRoomPassword] = useState('');
@@ -52,7 +51,14 @@ export function CreateRoom() {
       if (!hasPermission) { setIsLoading(false); return; }
 
       const password = !isPublic ? roomPassword : undefined;
-      const room = await api.createRoom(roomTitle.trim(), isPublic, password);
+      const trimmedDescription = description.trim();
+      const room = await api.createRoom(
+        roomTitle.trim(),
+        isPublic,
+        password,
+        topic,
+        trimmedDescription || undefined,
+      );
       setCurrentRoom(room);
       setCurrentRoomPassword(password ?? null);
       setIsHost(true);
@@ -109,8 +115,8 @@ export function CreateRoom() {
                 onChange={(e) => setTopic(e.target.value)}
                 className="input appearance-none pr-10"
               >
-                {TOPICS.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                {ROOM_TOPICS.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
                 ))}
               </select>
               <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-pod-text-secondary pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -130,6 +136,7 @@ export function CreateRoom() {
               placeholder="Weekly discussion about latest tech trends, startup news, and development tips."
               className="input resize-none h-24"
               rows={3}
+              maxLength={300}
             />
           </div>
 
