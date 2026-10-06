@@ -91,6 +91,12 @@ export interface AuthResponse {
   token: string;
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+  emailDelivery: 'sent' | 'unavailable' | 'dev';
+  devResetUrl?: string;
+}
+
 export interface ApiError {
   message: string;
   code?: string;

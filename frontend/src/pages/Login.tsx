@@ -105,9 +105,9 @@ export function Login() {
               </button>
             </div>
             <div className="text-right">
-              <button type="button" className="text-pod-red text-xs font-medium">
+              <Link to="/forgot-password" className="text-pod-red text-xs font-medium inline-flex items-center min-h-11">
                 Forgot password?
-              </button>
+              </Link>
             </div>
           </div>
 

@@ -249,6 +249,52 @@ paths:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /auth/forgot-password:
+    post:
+      tags: [auth]
+      security: []
+      summary: Request a password reset link
+      description: Always uses the same copy when delivery is possible, so the response does not reveal whether the email is registered. When SMTP is unset and the local dev flag is off, emailDelivery is unavailable and no token is created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  emailDelivery: { type: string, enum: [sent, unavailable, dev] }
+                  devResetUrl: { type: string, description: Present only when PASSWORD_RESET_DEV_LINK=1 outside production }
+
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      security: []
+      summary: Set a new password from a reset link and sign in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 6 }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
   /auth/me:
     get:
       tags: [auth]
