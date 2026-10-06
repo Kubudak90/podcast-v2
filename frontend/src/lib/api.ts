@@ -1,4 +1,4 @@
-import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
+import type { User, Room, RoomDetails, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -118,8 +118,29 @@ class ApiClient {
     });
   }
 
-  async getRoom(slug: string): Promise<Room> {
-    return this.request<Room>(`/rooms/${slug}`);
+  async getRoom(slug: string): Promise<RoomDetails> {
+    return this.request<RoomDetails>(`/rooms/${slug}`);
+  }
+
+  async muteParticipant(slug: string, userId: string): Promise<void> {
+    return this.request(`/rooms/${slug}/mute`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
+  }
+
+  async unmuteParticipant(slug: string, userId: string): Promise<void> {
+    return this.request(`/rooms/${slug}/unmute`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
+  }
+
+  async removeParticipant(slug: string, userId: string): Promise<void> {
+    return this.request(`/rooms/${slug}/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
   }
 
   async joinRoom(slug: string, password?: string): Promise<{ room: Room; participant: { role: string } }> {

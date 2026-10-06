@@ -58,14 +58,37 @@ export function leaveRoomChannel(roomSlug: string): void {
   }
 }
 
+export function requestUnmute(roomSlug: string): void {
+  socket?.emit('speaker:unmute_request', { roomSlug });
+}
+
 // Types for room updates
 export interface RecordingErrorPayload {
   error: string;
 }
 
 export interface RoomUpdateEvent {
-  type: 'status_changed' | 'participant_joined' | 'participant_left' | 'participant_role_changed' | 'recording_started' | 'recording_stopped';
-  payload: ParticipantJoinedPayload | ParticipantLeftPayload | StatusChangedPayload | RoleChangedPayload | RecordingErrorPayload;
+  type:
+    | 'status_changed'
+    | 'participant_joined'
+    | 'participant_left'
+    | 'participant_role_changed'
+    | 'participant_muted'
+    | 'participant_removed'
+    | 'speaker_unmute_requested'
+    | 'speaker_unmute_resolved'
+    | 'recording_started'
+    | 'recording_stopped';
+  payload:
+    | ParticipantJoinedPayload
+    | ParticipantLeftPayload
+    | StatusChangedPayload
+    | RoleChangedPayload
+    | ParticipantMutedPayload
+    | ParticipantRemovedPayload
+    | UnmuteRequestedPayload
+    | UnmuteResolvedPayload
+    | RecordingErrorPayload;
 }
 
 export interface ParticipantJoinedPayload {
@@ -87,4 +110,24 @@ export interface StatusChangedPayload {
 export interface RoleChangedPayload {
   userId: string;
   role: string;
+}
+
+export interface ParticipantMutedPayload {
+  userId: string;
+  mutedByHost: boolean;
+}
+
+export interface ParticipantRemovedPayload {
+  userId: string;
+}
+
+export interface UnmuteRequestedPayload {
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  requestedAt: string;
+}
+
+export interface UnmuteResolvedPayload {
+  userId: string;
 }

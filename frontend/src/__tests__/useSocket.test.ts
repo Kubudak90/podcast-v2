@@ -137,6 +137,64 @@ describe('useSocket', () => {
     expect(onRecordingError).toHaveBeenCalledWith({ error: 'Kayit baslatilamadi' });
   });
 
+  it('should call onParticipantMuted when the host mutes someone', () => {
+    const onParticipantMuted = vi.fn();
+    renderHook(() => useSocket({ onParticipantMuted }));
+
+    const handler = mockSocket.on.mock.calls.find((call) => call[0] === 'room:update')?.[1];
+
+    act(() => {
+      handler?.({
+        type: 'participant_muted',
+        payload: { userId: 'user-2', mutedByHost: true },
+      });
+    });
+
+    expect(onParticipantMuted).toHaveBeenCalledWith({ userId: 'user-2', mutedByHost: true });
+  });
+
+  it('should call onParticipantRemoved when the host removes someone', () => {
+    const onParticipantRemoved = vi.fn();
+    renderHook(() => useSocket({ onParticipantRemoved }));
+
+    const handler = mockSocket.on.mock.calls.find((call) => call[0] === 'room:update')?.[1];
+
+    act(() => {
+      handler?.({
+        type: 'participant_removed',
+        payload: { userId: 'user-2' },
+      });
+    });
+
+    expect(onParticipantRemoved).toHaveBeenCalledWith({ userId: 'user-2' });
+  });
+
+  it('should call onUnmuteRequested and onUnmuteResolved', () => {
+    const onUnmuteRequested = vi.fn();
+    const onUnmuteResolved = vi.fn();
+    renderHook(() => useSocket({ onUnmuteRequested, onUnmuteResolved }));
+
+    const handler = mockSocket.on.mock.calls.find((call) => call[0] === 'room:update')?.[1];
+
+    act(() => {
+      handler?.({
+        type: 'speaker_unmute_requested',
+        payload: { userId: 'user-2', username: 'ada', requestedAt: '2026-10-06T00:00:00.000Z' },
+      });
+      handler?.({
+        type: 'speaker_unmute_resolved',
+        payload: { userId: 'user-2' },
+      });
+    });
+
+    expect(onUnmuteRequested).toHaveBeenCalledWith({
+      userId: 'user-2',
+      username: 'ada',
+      requestedAt: '2026-10-06T00:00:00.000Z',
+    });
+    expect(onUnmuteResolved).toHaveBeenCalledWith({ userId: 'user-2' });
+  });
+
   it('should call onParticipantLeft when participant leaves', () => {
     const onParticipantLeft = vi.fn();
     renderHook(() => useSocket({ onParticipantLeft }));
