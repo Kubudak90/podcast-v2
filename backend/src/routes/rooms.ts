@@ -15,6 +15,15 @@ import { blockedUserIds } from '../lib/blocks.js';
 
 const router = Router();
 
+async function findRoomHost(hostId: string) {
+  const host = await prisma.user.findUnique({
+    where: { id: hostId },
+    select: { id: true, username: true, avatarUrl: true },
+  });
+  if (!host?.id || !host.username) return null;
+  return { id: host.id, username: host.username, avatarUrl: host.avatarUrl ?? null };
+}
+
 // GET /api/rooms - List public rooms
 router.get('/', validateQuery(roomListQuerySchema), async (req: AuthRequest, res: Response) => {
   try {
@@ -263,6 +272,8 @@ router.post('/:slug/join', banGuard, validate(joinRoomSchema), async (req: AuthR
       return res.status(403).json({ message: 'You were removed from this room' });
     }
 
+    const host = await findRoomHost(room.hostId);
+
     if (existingParticipant && !existingParticipant.leftAt) {
       return res.json({
         room: {
@@ -270,6 +281,7 @@ router.post('/:slug/join', banGuard, validate(joinRoomSchema), async (req: AuthR
           slug: room.slug,
           title: room.title,
           hostId: room.hostId,
+          host,
           status: room.status,
           maxSpeakers: room.maxSpeakers,
           isPublic: room.isPublic,
@@ -328,6 +340,7 @@ router.post('/:slug/join', banGuard, validate(joinRoomSchema), async (req: AuthR
         slug: room.slug,
         title: room.title,
         hostId: room.hostId,
+        host,
         status: room.status,
         maxSpeakers: room.maxSpeakers,
         isPublic: room.isPublic,

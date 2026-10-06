@@ -465,6 +465,12 @@ describe('Room Routes', () => {
         userId: 'user-123',
         role: 'listener',
       });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'host-456',
+        username: 'hosty',
+        avatarUrl: null,
+        isBanned: false,
+      });
 
       const response = await request(app)
         .post('/api/rooms/abc12345/join')
@@ -473,6 +479,11 @@ describe('Room Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.participant.role).toBe('listener');
+      expect(response.body.room.host).toEqual({
+        id: 'host-456',
+        username: 'hosty',
+        avatarUrl: null,
+      });
     });
   });
 

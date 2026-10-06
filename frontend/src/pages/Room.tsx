@@ -12,8 +12,10 @@ import { Button, VolumeSlider, AudioLevelMeter } from '../components/UI';
 import { toast } from '../components/Toast';
 import { Chat } from '../components/Chat';
 import { api } from '../lib/api';
+import { publishesAudio } from '../lib/participants';
 import { useAuthStore, useRoomStore, useAudioSettingsStore } from '../lib/store';
 import { useSocket } from '../hooks/useSocket';
+import type { ListenerCountPayload } from '../lib/socket';
 import type { Room as RoomType } from '../types';
 
 async function checkMicrophonePermission(): Promise<boolean> {
@@ -94,7 +96,7 @@ function ParticipantTile({
         @{participant.identity}
       </span>
       <span className={`text-[10px] font-semibold tracking-wider ${isSpeaking ? 'text-pod-red' : 'text-pod-text-secondary'}`}>
-        {isSpeaking ? 'SPEAKING' : isMuted ? 'MUTED' : 'HOST'}
+        {isSpeaking ? 'SPEAKING' : isMuted ? 'MUTED' : 'ON MIC'}
       </span>
 
       {!isLocal && showVolumeControl && (
@@ -114,8 +116,9 @@ function ParticipantTile({
 
 function RoomContent({ room }: { room: RoomType }) {
   const navigate = useNavigate();
-  const { isHost, isMuted, currentRoomPassword, setIsMuted, setIsSpeaker, reset } = useRoomStore();
+  const { isHost, isSpeaker, isMuted, currentRoomPassword, setIsMuted, setIsSpeaker, reset } = useRoomStore();
   const participants = useParticipants();
+  const speakers = participants.filter((p) => publishesAudio(p.permissions));
   const { localParticipant } = useLocalParticipant();
   const [isLive, setIsLive] = useState(room.status === 'live');
   const [micPermission, setMicPermission] = useState<boolean | null>(null);
@@ -123,6 +126,7 @@ function RoomContent({ room }: { room: RoomType }) {
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [elapsedTime, setElapsedTime] = useState('00:00');
+  const [listenerCount, setListenerCount] = useState(0);
 
   // Timer
   useEffect(() => {
@@ -155,14 +159,22 @@ function RoomContent({ room }: { room: RoomType }) {
     toast.error(payload.error);
   }, []);
 
+  const handleListenerCount = useCallback((payload: ListenerCountPayload) => {
+    setListenerCount(payload.count);
+  }, []);
+
   useSocket({
     roomSlug: room.slug,
     onStatusChanged: handleStatusChanged,
     onRoleChanged: handleRoleChanged,
     onRecordingError: handleRecordingError,
+    onListenerCount: handleListenerCount,
   });
 
-  useEffect(() => { checkMicrophonePermission().then(setMicPermission); }, []);
+  useEffect(() => {
+    if (!isSpeaker) return;
+    checkMicrophonePermission().then(setMicPermission);
+  }, [isSpeaker]);
 
   useEffect(() => {
     if (localParticipant) setIsMuted(!localParticipant.isMicrophoneEnabled);
@@ -274,8 +286,8 @@ function RoomContent({ room }: { room: RoomType }) {
         <div className="px-6 flex gap-4 mb-6">
           <div className="flex-1 border border-pod-border rounded-xl p-6">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary mb-2">LISTENERS</p>
-            <p className="text-4xl font-bold text-white">{participants.length}</p>
-            <p className="text-xs text-pod-text-secondary font-mono mt-1">+{Math.max(0, participants.length - 1)} Joined</p>
+            <p className="text-4xl font-bold text-white">{listenerCount}</p>
+            <p className="text-xs text-pod-text-secondary font-mono mt-1">Listening</p>
           </div>
           <div className="flex-1 border border-pod-border rounded-xl p-6">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary mb-2">DURATION</p>
@@ -288,10 +300,10 @@ function RoomContent({ room }: { room: RoomType }) {
         <div className="px-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary">SPEAKERS</p>
-            <span className="text-pod-red text-xs font-medium">{participants.length}/10</span>
+            <span className="text-pod-red text-xs font-medium">{speakers.length}/10</span>
           </div>
           <div className="flex gap-6 overflow-x-auto no-scrollbar">
-            {participants.map((p) => (
+            {speakers.map((p) => (
               <ParticipantTile
                 key={p.identity}
                 participant={p}
@@ -352,7 +364,9 @@ function RoomContent({ room }: { room: RoomType }) {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">{room.title}</h1>
-            <p className="text-pod-text-secondary font-mono text-sm mt-1">Host: @{room.hostId}</p>
+            <p className="text-pod-text-secondary font-mono text-sm mt-1">
+              {room.host?.username ? `Host: @${room.host.username}` : 'Host'}
+            </p>
           </div>
           <button
             onClick={handleLeave}
@@ -374,7 +388,7 @@ function RoomContent({ room }: { room: RoomType }) {
           </div>
         )}
         <div className="flex items-end gap-3">
-          <span className="text-7xl font-extrabold text-white leading-none">{participants.length}</span>
+          <span className="text-7xl font-extrabold text-white leading-none">{listenerCount}</span>
           <span className="text-xs font-semibold tracking-widest text-pod-text-secondary mb-3">LISTENERS</span>
         </div>
         <p className="text-pod-text-secondary font-mono text-sm mt-4">Live for {elapsedTime}</p>
@@ -386,7 +400,7 @@ function RoomContent({ room }: { room: RoomType }) {
           <p className="text-[10px] font-semibold tracking-[2px] text-pod-text-secondary">SPEAKING NOW</p>
         </div>
         <div className="flex justify-center gap-6">
-          {participants.map((p) => (
+          {speakers.map((p) => (
             <ParticipantTile
               key={p.identity}
               participant={p}
@@ -619,7 +633,7 @@ export function Room() {
       token={livekitToken}
       serverUrl={livekitUrl}
       connect={true}
-      audio={true}
+      audio={isSpeaker}
       video={false}
       onConnected={handleConnected}
       onError={(error) => {

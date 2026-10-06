@@ -64,8 +64,8 @@ export interface RecordingErrorPayload {
 }
 
 export interface RoomUpdateEvent {
-  type: 'status_changed' | 'participant_joined' | 'participant_left' | 'participant_role_changed' | 'recording_started' | 'recording_stopped';
-  payload: ParticipantJoinedPayload | ParticipantLeftPayload | StatusChangedPayload | RoleChangedPayload | RecordingErrorPayload;
+  type: 'status_changed' | 'participant_joined' | 'participant_left' | 'participant_role_changed' | 'recording_started' | 'recording_stopped' | 'listener_count';
+  payload: ParticipantJoinedPayload | ParticipantLeftPayload | StatusChangedPayload | RoleChangedPayload | RecordingErrorPayload | ListenerCountPayload;
 }
 
 export interface ParticipantJoinedPayload {
@@ -87,4 +87,13 @@ export interface StatusChangedPayload {
 export interface RoleChangedPayload {
   userId: string;
   role: string;
+}
+
+export interface ListenerCountPayload {
+  count: number;
+  sample: {
+    userId: string;
+    username: string;
+    avatarUrl?: string | null;
+  }[];
 }
