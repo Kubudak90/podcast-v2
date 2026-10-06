@@ -1,7 +1,8 @@
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from './store';
+import { resolveSocketOrigin } from './endpoints';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = resolveSocketOrigin(import.meta.env.VITE_API_URL, import.meta.env.VITE_SOCKET_URL);
 
 let socket: Socket | null = null;
 

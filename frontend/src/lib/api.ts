@@ -1,6 +1,7 @@
-import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse } from '../types';
+import type { User, Room, Recording, AuthResponse, LiveKitTokenResponse, RoomHistoryItem, PublicRoomsResponse, UserProfile, FollowUser, PublicRecording, RecordingFeedResponse, ChatMessage } from '../types';
+import { resolveApiBase } from './endpoints';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL);
 
 class ApiClient {
   private token: string | null = null;
@@ -120,6 +121,10 @@ class ApiClient {
 
   async getRoom(slug: string): Promise<Room> {
     return this.request<Room>(`/rooms/${slug}`);
+  }
+
+  async getRoomChat(slug: string): Promise<ChatMessage[]> {
+    return this.request<ChatMessage[]>(`/rooms/${slug}/chat`);
   }
 
   async joinRoom(slug: string, password?: string): Promise<{ room: Room; participant: { role: string } }> {

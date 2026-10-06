@@ -2,15 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getSocket } from '../lib/socket';
 import { api } from '../lib/api';
 import { Avatar } from './UI';
-
-interface ChatMessage {
-  id: string;
-  userId: string;
-  username: string;
-  avatarUrl?: string | null;
-  content: string;
-  createdAt: string;
-}
+import type { ChatMessage } from '../types';
 
 interface ChatProps {
   roomSlug: string;
@@ -30,15 +22,8 @@ export function Chat({ roomSlug, isOpen, onClose }: ChatProps) {
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/rooms/${roomSlug}/chat`, {
-          headers: {
-            Authorization: `Bearer ${api.getToken()}`,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setMessages(data);
-        }
+        const data = await api.getRoomChat(roomSlug);
+        setMessages(data);
       } catch (error) {
         console.error('Failed to load chat messages:', error);
       } finally {

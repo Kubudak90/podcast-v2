@@ -81,6 +81,7 @@ S3_SECRET_KEY=your-secret-key
 S3_BUCKET=podchat-recordings
 
 # Frontend URL'leri
+# Site origin yeter. REST isteklerine istemci `/api` ekler; Socket.IO origin'e bağlanır.
 VITE_API_URL=https://podchat.example.com
 VITE_LIVEKIT_URL=wss://livekit.podchat.example.com
 FRONTEND_URL=https://podchat.example.com
