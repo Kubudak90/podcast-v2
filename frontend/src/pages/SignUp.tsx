@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/UI';
 import { api } from '../lib/api';
+import { legalPageUrl, signupErrorMessage, signupPayload, validateSignup } from '../lib/signup';
 import { useAuthStore } from '../lib/store';
 
 export function SignUp() {
@@ -20,34 +21,20 @@ export function SignUp() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim()) {
-      setError('Kullanici adi gerekli');
+    const fields = { username, email, password, confirmPassword, agreeTerms };
+    const validationError = validateSignup(fields);
+    if (validationError) {
+      setError(signupErrorMessage[validationError]);
       return;
     }
-    if (!email.trim()) {
-      setError('Email gerekli');
-      return;
-    }
-    if (!password) {
-      setError('Sifre gerekli');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Sifreler eslesmiyor');
-      return;
-    }
-
-    if (!agreeTerms) {
-      setError('Kullanim sartlarini kabul etmelisiniz');
-      return;
-    }
+    const payload = signupPayload(fields);
+    if (!payload) return;
 
     setIsLoading(true);
     setError('');
 
     try {
-      const response = await api.register(username.trim(), email.trim(), password);
+      const response = await api.register(payload.username, payload.email, payload.password);
       api.setToken(response.token);
       setAuth(response.user, response.token);
       navigate('/');
@@ -82,52 +69,59 @@ export function SignUp() {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5 max-w-sm">
+        <form onSubmit={handleSubmit} noValidate className="space-y-5 max-w-sm">
           <div className="space-y-2">
-            <label className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
+            <label htmlFor="signup-username" className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
               Username
             </label>
             <input
+              id="signup-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="@username"
               className="input"
               autoFocus
-              minLength={2}
-              maxLength={50}
+              autoComplete="username"
+              maxLength={51}
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
+            <label htmlFor="signup-email" className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
               Email
             </label>
             <input
+              id="signup-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               className="input"
+              autoComplete="email"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
+            <label htmlFor="signup-password" className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
               Password
             </label>
             <div className="relative">
               <input
+                id="signup-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="input pr-12"
+                autoComplete="new-password"
+                aria-describedby="signup-password-hint"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-pod-text-secondary hover:text-white transition-colors"
+                aria-label={showPassword ? 'Sifreyi gizle' : 'Sifreyi goster'}
+                className="absolute right-1 top-1/2 -translate-y-1/2 min-w-11 min-h-11 flex items-center justify-center text-pod-text-secondary hover:text-white transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -135,24 +129,30 @@ export function SignUp() {
                 </svg>
               </button>
             </div>
+            <p id="signup-password-hint" className="text-xs text-pod-text-secondary">
+              En az 6 karakter
+            </p>
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
+            <label htmlFor="signup-confirm" className="text-[10px] font-semibold tracking-widest text-pod-text-secondary uppercase">
               Confirm Password
             </label>
             <div className="relative">
               <input
+                id="signup-confirm"
                 type={showConfirmPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="••••••••"
                 className="input pr-12"
+                autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-pod-text-secondary hover:text-white transition-colors"
+                aria-label={showConfirmPassword ? 'Sifre tekrarini gizle' : 'Sifre tekrarini goster'}
+                className="absolute right-1 top-1/2 -translate-y-1/2 min-w-11 min-h-11 flex items-center justify-center text-pod-text-secondary hover:text-white transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -163,20 +163,41 @@ export function SignUp() {
           </div>
 
           {/* Terms */}
-          <div className="flex items-start gap-3">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setAgreeTerms(!agreeTerms)}
-              className={`w-4 h-4 mt-0.5 flex-shrink-0 rounded-sm flex items-center justify-center transition-colors ${agreeTerms ? 'bg-pod-red' : 'border border-pod-border'}`}
+              aria-pressed={agreeTerms}
+              aria-label="Kullanim sartlarini kabul et"
+              className="w-11 h-11 flex-shrink-0 flex items-center justify-center"
             >
-              {agreeTerms && (
-                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              )}
+              <span className={`w-4 h-4 rounded-sm flex items-center justify-center transition-colors ${agreeTerms ? 'bg-pod-red' : 'border border-pod-border'}`}>
+                {agreeTerms && (
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </span>
             </button>
             <span className="text-xs text-pod-text-secondary leading-relaxed">
-              I agree to the Terms and Privacy Policy
+              I agree to the{' '}
+              <a
+                href={legalPageUrl('terms')}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-pod-red underline"
+              >
+                Terms
+              </a>
+              {' '}and{' '}
+              <a
+                href={legalPageUrl('privacy')}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-pod-red underline"
+              >
+                Privacy Policy
+              </a>
             </span>
           </div>
 
