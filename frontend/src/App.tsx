@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Header, TabBar } from './components/Layout';
+import { RouteTitle } from './components/RouteTitle';
 import { Home, Login, SignUp, Room, RoomEnded, Profile, Listen, CreateRoom, Library } from './pages';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
@@ -25,6 +26,7 @@ function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        <RouteTitle />
         <div className="min-h-screen bg-pod-bg">
           <Header />
           <main className="pb-24">
