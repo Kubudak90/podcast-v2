@@ -1,11 +1,31 @@
 /// <reference lib="webworker" />
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { clientsClaim } from 'workbox-core';
+import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
+import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { APP_SHELL_NAVIGATION_DENYLIST } from './lib/appShell';
 
 declare let self: ServiceWorkerGlobalScope;
+
+// registerType is autoUpdate; injectManifest does not add this on its own.
+self.skipWaiting();
+clientsClaim();
 
 // Precache all assets
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
+
+// Offline (and repeat) navigations to client routes serve the precached shell.
+// createHandlerBoundToURL throws when index.html is not in the precache yet,
+// which happens in dev before the first production manifest is injected.
+try {
+  registerRoute(
+    new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+      denylist: APP_SHELL_NAVIGATION_DENYLIST,
+    }),
+  );
+} catch (error) {
+  console.warn('App shell is not precached yet; offline reloads stay online-only.', error);
+}
 
 // Handle push notifications
 self.addEventListener('push', (event) => {
