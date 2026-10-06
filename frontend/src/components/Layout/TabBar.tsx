@@ -50,7 +50,7 @@ export function TabBar() {
   if (isHidden) return null;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 safe-area-pb">
+    <nav aria-label="Ana menu" className="fixed bottom-0 left-0 right-0 z-40 safe-area-pb">
       <div className="bg-gradient-to-t from-pod-bg via-pod-bg/95 to-transparent pt-3 px-5 pb-3">
         <div className="flex items-center justify-around border border-pod-border rounded-full py-2 px-1 bg-pod-bg/80 backdrop-blur-lg">
           {tabs.map((tab) => {
@@ -59,9 +59,10 @@ export function TabBar() {
               <Link
                 key={tab.path}
                 to={tab.path}
-                className="flex flex-col items-center gap-1 py-1.5 px-4"
+                aria-current={isActive ? 'page' : undefined}
+                className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 py-1.5 px-4"
               >
-                {tab.icon(isActive)}
+                <span aria-hidden="true">{tab.icon(isActive)}</span>
                 <span className={`text-[10px] font-medium ${isActive ? 'text-pod-red' : 'text-pod-text-secondary'}`}>
                   {tab.label}
                 </span>
