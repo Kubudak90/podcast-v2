@@ -154,7 +154,7 @@ socket.emit('speaker:reject', { roomSlug, userId }); // host only
 // Server → Client: tek zarf
 socket.on('room:update', ({ type, payload }) => {});
 // type ∈:
-//   'status_changed'            payload: { status, isRecording }
+//   'status_changed'            payload: { status, isRecording, startedAt? }
 //   'participant_joined'        payload: { userId, username, role, avatarUrl? }
 //   'participant_left'          payload: { userId }
 //   'participant_role_changed'  payload: { userId, role }

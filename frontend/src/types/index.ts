@@ -19,6 +19,7 @@ export interface Room {
   createdAt: string;
   startedAt?: string;
   endedAt?: string;
+  isRecording?: boolean;
 }
 
 export interface Participant {

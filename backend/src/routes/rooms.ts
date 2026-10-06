@@ -433,7 +433,7 @@ router.post('/:slug/start', async (req: AuthRequest<{ slug: string }>, res: Resp
     });
 
     // Emit socket event for room status change
-    emitRoomStatusChanged(room.slug, 'live', !!egressId);
+    emitRoomStatusChanged(room.slug, 'live', !!egressId, updatedRoom.startedAt?.toISOString() ?? null);
 
     // Notify followers that host is live (fire and forget)
     notifyFollowersOfLive(req.userId!, req.user!.username, room.title, room.slug).catch((error) => {
