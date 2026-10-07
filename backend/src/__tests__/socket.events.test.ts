@@ -37,8 +37,10 @@ vi.mock('../lib/livekit.js', () => ({
 }));
 
 import { Server as HttpServer } from 'http';
+import jwt from 'jsonwebtoken';
 import {
   initializeSocket,
+  getIO,
   emitRoomUpdate,
   emitParticipantJoined,
   emitParticipantLeft,
@@ -55,6 +57,155 @@ import {
   broadcastListenerCount,
 } from '../lib/socket.js';
 import { prisma } from '../lib/prisma.js';
+
+type PacketNext = (err?: Error) => void;
+type PacketGuard = (packet: unknown, next: PacketNext) => Promise<void> | void;
+
+function handshakeMiddleware(): (
+  socket: { handshake: { auth: { token?: string } }; userId?: string; username?: string },
+  next: (err?: Error) => void,
+) => Promise<void> {
+  const use = (getIO() as unknown as { use: { mock: { calls: unknown[][] } } }).use;
+  const middleware = use.mock.calls[0]?.[0];
+  if (typeof middleware !== 'function') {
+    throw new Error('socket handshake middleware was not registered');
+  }
+  return middleware as (
+    socket: { handshake: { auth: { token?: string } }; userId?: string; username?: string },
+    next: (err?: Error) => void,
+  ) => Promise<void>;
+}
+
+function suspensionGuard(): {
+  guard: PacketGuard;
+  socket: { userId?: string; disconnect: ReturnType<typeof vi.fn> };
+} {
+  const on = (getIO() as unknown as { on: { mock: { calls: unknown[][] } } }).on;
+  const connection = on.mock.calls.find((call) => call[0] === 'connection')?.[1];
+  if (typeof connection !== 'function') {
+    throw new Error('socket connection handler was not registered');
+  }
+
+  const packetGuards: PacketGuard[] = [];
+  const socket = {
+    userId: 'user-1' as string | undefined,
+    username: 'ada',
+    disconnect: vi.fn(),
+    on: vi.fn(),
+    join: vi.fn(),
+    leave: vi.fn(),
+    rooms: new Set<string>(),
+    use(fn: PacketGuard) {
+      packetGuards.push(fn);
+    },
+  };
+  connection(socket);
+  const guard = packetGuards[0];
+  if (!guard) throw new Error('suspension guard was not registered');
+  return { guard, socket };
+}
+
+describe('suspended account socket access', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    initializeSocket({} as HttpServer);
+  });
+
+  it('refuses the handshake when the account is suspended', async () => {
+    vi.mocked(jwt.verify).mockReturnValue({ userId: 'user-1', username: 'ada' } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-1',
+      username: 'ada',
+      isBanned: true,
+    } as never);
+
+    const socket = { handshake: { auth: { token: 'jwt' } } };
+    const next = vi.fn();
+    await handshakeMiddleware()(socket, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(next.mock.calls[0][0].message).toBe('Account suspended');
+    expect(socket).not.toHaveProperty('userId');
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      select: { id: true, username: true, isBanned: true },
+    });
+  });
+
+  it('accepts the handshake for an active account', async () => {
+    vi.mocked(jwt.verify).mockReturnValue({ userId: 'user-1', username: 'stale' } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-1',
+      username: 'ada',
+      isBanned: false,
+    } as never);
+
+    const socket: { handshake: { auth: { token: string } }; userId?: string; username?: string } = {
+      handshake: { auth: { token: 'jwt' } },
+    };
+    const next = vi.fn();
+    await handshakeMiddleware()(socket, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(socket.userId).toBe('user-1');
+    expect(socket.username).toBe('ada');
+  });
+
+  it('still rejects a missing account', async () => {
+    vi.mocked(jwt.verify).mockReturnValue({ userId: 'gone', username: 'ada' } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never);
+
+    const next = vi.fn();
+    await handshakeMiddleware()({ handshake: { auth: { token: 'jwt' } } }, next);
+
+    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(next.mock.calls[0][0].message).toBe('User not found');
+  });
+
+  it('drops an open socket when a later event sees a suspension', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ isBanned: true } as never);
+    const { guard, socket } = suspensionGuard();
+    const next = vi.fn();
+
+    await guard(['chat:send', { roomSlug: 'room', content: 'hello' }], next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(next.mock.calls[0][0].message).toBe('Account suspended');
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+    expect(prisma.chatMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('lets an active account through and skips the lookup while disconnecting', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ isBanned: false } as never);
+    const { guard, socket } = suspensionGuard();
+    const next = vi.fn();
+
+    await guard(['room:join', 'room'], next);
+    expect(next).toHaveBeenCalledWith();
+    expect(socket.disconnect).not.toHaveBeenCalled();
+
+    next.mockClear();
+    vi.mocked(prisma.user.findUnique).mockClear();
+    await guard(['disconnecting'], next);
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith();
+    expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the socket open when the suspension lookup fails', async () => {
+    vi.mocked(prisma.user.findUnique).mockRejectedValue(new Error('db down'));
+    const { guard, socket } = suspensionGuard();
+    const next = vi.fn();
+
+    await guard(['chat:send', { content: 'hi' }], next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+});
 
 describe('Socket Event Emitters', () => {
   beforeEach(() => {
