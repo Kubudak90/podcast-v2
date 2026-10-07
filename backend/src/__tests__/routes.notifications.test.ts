@@ -10,6 +10,7 @@ vi.mock('../lib/prisma.js', () => ({
     },
     notificationSubscription: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       upsert: vi.fn(),
       deleteMany: vi.fn(),
     },
@@ -31,7 +32,12 @@ vi.mock('../lib/socket.js', () => ({
 }));
 
 vi.mock('../lib/livekit.js', () => ({
-  createLiveKitToken: vi.fn().mockResolvedValue({ token: 'mock-token', expiresAt: new Date(Date.now() + 3600000).toISOString() }),
+  createLiveKitToken: vi
+    .fn()
+    .mockResolvedValue({
+      token: 'mock-token',
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+    }),
   startRoomRecording: vi.fn().mockResolvedValue({ egressId: 'mock-egress-id' }),
   stopRoomRecording: vi.fn().mockResolvedValue(undefined),
 }));
@@ -47,6 +53,7 @@ import { getVapidPublicKey } from '../lib/push.js';
 type MockedPrisma = typeof prisma & {
   notificationSubscription: {
     findMany: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     deleteMany: ReturnType<typeof vi.fn>;
   };
@@ -60,6 +67,7 @@ describe('Notifications Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.notificationSubscription.findUnique.mockResolvedValue(null);
   });
 
   describe('GET /api/notifications/vapid-key', () => {
@@ -86,8 +94,7 @@ describe('Notifications Routes', () => {
     });
 
     it('should require authentication', async () => {
-      const response = await request(app)
-        .get('/api/notifications/vapid-key');
+      const response = await request(app).get('/api/notifications/vapid-key');
 
       expect(response.status).toBe(401);
     });
@@ -157,6 +164,83 @@ describe('Notifications Routes', () => {
         });
 
       expect(response.status).toBe(400);
+    });
+
+    it('should return 400 for a non-https endpoint', async () => {
+      const response = await request(app)
+        .post('/api/notifications/subscribe')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          endpoint: 'http://push.example.com/abc',
+          keys: {
+            p256dh: 'test-p256dh',
+            auth: 'test-auth',
+          },
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('Invalid subscription data');
+      expect(mockPrisma.notificationSubscription.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should reject a takeover when another account owns the endpoint', async () => {
+      mockPrisma.notificationSubscription.findUnique.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-other',
+        endpoint: 'https://push.example.com/abc',
+        p256dh: 'real-p256dh',
+        auth: 'real-auth',
+      });
+
+      const response = await request(app)
+        .post('/api/notifications/subscribe')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          endpoint: 'https://push.example.com/abc',
+          keys: {
+            p256dh: 'attacker-p256dh',
+            auth: 'attacker-auth',
+          },
+        });
+
+      expect(response.status).toBe(409);
+      expect(response.body.message).toBe('This device is already registered to another account');
+      expect(mockPrisma.notificationSubscription.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should move the endpoint when the same browser keys are presented', async () => {
+      mockPrisma.notificationSubscription.findUnique.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-other',
+        endpoint: 'https://push.example.com/abc',
+        p256dh: 'test-p256dh',
+        auth: 'test-auth',
+      });
+      mockPrisma.notificationSubscription.upsert.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-123',
+        endpoint: 'https://push.example.com/abc',
+        p256dh: 'test-p256dh',
+        auth: 'test-auth',
+      });
+
+      const response = await request(app)
+        .post('/api/notifications/subscribe')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          endpoint: 'https://push.example.com/abc',
+          keys: {
+            p256dh: 'test-p256dh',
+            auth: 'test-auth',
+          },
+        });
+
+      expect(response.status).toBe(200);
+      expect(mockPrisma.notificationSubscription.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({ userId: 'user-123' }),
+        }),
+      );
     });
   });
 
