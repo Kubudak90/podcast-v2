@@ -1,5 +1,5 @@
-import { Component } from 'react';
-import type { ErrorInfo, ReactNode } from 'react';
+import { Component, Fragment, createRef } from 'react';
+import type { ErrorInfo, ReactNode, RefObject } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -8,25 +8,53 @@ interface Props {
 
 interface State {
   hasError: boolean;
-  error: Error | null;
+  resetKey: number;
 }
 
+const actionButtonClass =
+  'inline-flex items-center justify-center min-h-11 min-w-11 px-6 py-2.5 text-white rounded-lg font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
+
 class ErrorBoundary extends Component<Props, State> {
+  private headingRef: RefObject<HTMLHeadingElement | null> = createRef();
+
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, resetKey: 0 };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(): Partial<State> {
+    return { hasError: true };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Error caught by boundary:', error, errorInfo);
   }
 
+  componentDidMount() {
+    this.focusHeading();
+  }
+
+  componentDidUpdate(_prevProps: Props, prevState: State) {
+    if (!prevState.hasError) {
+      this.focusHeading();
+    }
+  }
+
+  focusHeading() {
+    if (this.state.hasError && !this.props.fallback) {
+      this.headingRef.current?.focus();
+    }
+  }
+
   handleRetry = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState((state) => ({
+      hasError: false,
+      resetKey: state.resetKey + 1,
+    }));
+  };
+
+  handleHome = () => {
+    window.location.assign('/');
   };
 
   render() {
@@ -36,14 +64,22 @@ class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen bg-pod-bg flex items-center justify-center p-4">
+        <div
+          className="min-h-screen bg-pod-bg flex items-center justify-center p-4"
+          role="alert"
+          aria-labelledby="error-boundary-title"
+        >
           <div className="bg-pod-elevated border border-pod-border rounded-2xl p-8 max-w-md w-full text-center">
-            <div className="w-16 h-16 bg-pod-red/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div
+              className="w-16 h-16 bg-pod-red/20 rounded-full flex items-center justify-center mx-auto mb-4"
+              aria-hidden="true"
+            >
               <svg
                 className="w-8 h-8 text-pod-red"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -54,36 +90,32 @@ class ErrorBoundary extends Component<Props, State> {
               </svg>
             </div>
 
-            <h2 className="text-xl font-bold text-white mb-2">
+            <h1
+              ref={this.headingRef}
+              id="error-boundary-title"
+              tabIndex={-1}
+              className="text-xl font-bold text-white mb-2 outline-none"
+            >
               Bir hata olustu
-            </h2>
+            </h1>
 
             <p className="text-pod-text-secondary mb-6">
               Beklenmeyen bir hata meydana geldi. Lutfen tekrar deneyin.
             </p>
 
-            {this.state.error && (
-              <details className="mb-6 text-left">
-                <summary className="text-pod-text-secondary cursor-pointer hover:text-white text-sm">
-                  Hata detaylari
-                </summary>
-                <pre className="mt-2 p-3 bg-pod-bg rounded-lg text-xs text-pod-red overflow-auto max-h-32">
-                  {this.state.error.message}
-                </pre>
-              </details>
-            )}
-
-            <div className="flex gap-3 justify-center">
+            <div className="flex flex-wrap gap-3 justify-center">
               <button
+                type="button"
                 onClick={this.handleRetry}
-                className="px-6 py-2.5 bg-pod-red text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+                className={`${actionButtonClass} bg-pod-red hover:bg-red-600`}
               >
                 Tekrar Dene
               </button>
 
               <button
-                onClick={() => window.location.href = '/'}
-                className="px-6 py-2.5 bg-pod-active text-white rounded-lg font-medium hover:bg-pod-elevated transition-colors"
+                type="button"
+                onClick={this.handleHome}
+                className={`${actionButtonClass} bg-pod-active hover:bg-pod-elevated`}
               >
                 Ana Sayfa
               </button>
@@ -93,7 +125,7 @@ class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return <Fragment key={this.state.resetKey}>{this.props.children}</Fragment>;
   }
 }
 
