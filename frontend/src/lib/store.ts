@@ -21,8 +21,12 @@ export const useAuthStore = create<AuthState>()(
         set({ user, token, isAuthenticated: true }),
       updateUser: (user) =>
         set({ user }),
-      logout: () =>
-        set({ user: null, token: null, isAuthenticated: false }),
+      // Aynı sekmede hesap değişince önceki odanın şifresi ve host rolü
+      // kalmasın; aksi halde yeni hesap katılmadan o rolü devralır.
+      logout: () => {
+        useRoomStore.getState().reset();
+        set({ user: null, token: null, isAuthenticated: false });
+      },
     }),
     {
       name: 'auth-storage',
