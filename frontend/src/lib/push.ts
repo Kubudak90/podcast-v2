@@ -74,11 +74,10 @@ export async function unsubscribeFromPush(): Promise<boolean> {
     const subscription = await registration.pushManager.getSubscription();
 
     if (subscription) {
-      // Unsubscribe locally
-      await subscription.unsubscribe();
-
-      // Remove from server
+      // Drop the server row first. A failed DELETE must leave the browser
+      // subscription in place so a retry still has an endpoint to send.
       await api.unsubscribeFromPush(subscription.endpoint);
+      await subscription.unsubscribe();
     }
 
     return true;
