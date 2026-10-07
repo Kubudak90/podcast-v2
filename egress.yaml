@@ -17,8 +17,8 @@ s3:
   access_key: ${S3_ACCESS_KEY}
   secret: ${S3_SECRET_KEY}
   region: auto
-  endpoint: https://3e064bf36911d04c80bf690698c47981.r2.cloudflarestorage.com
-  bucket: podchat-recordings
+  endpoint: ${S3_ENDPOINT}
+  bucket: ${S3_BUCKET}
   force_path_style: true
 
 logging:
