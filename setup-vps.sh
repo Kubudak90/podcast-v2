@@ -68,7 +68,9 @@ ufw allow ssh
 ufw allow 80/tcp      # HTTP
 ufw allow 443/tcp     # HTTPS
 ufw allow 7881/tcp    # LiveKit RTC TCP
+ufw allow 3478/udp    # LiveKit TURN/UDP
 ufw allow 50000:50100/udp  # LiveKit RTC UDP
+ufw allow 50101:50200/udp  # LiveKit TURN relay
 
 # Enable firewall
 echo "y" | ufw enable

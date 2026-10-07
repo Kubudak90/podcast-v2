@@ -48,7 +48,9 @@ services:
     ports:
       - "7880:7880"                    # HTTP API (internal)
       - "7881:7881"                    # RTC TCP
+      - "3478:3478/udp"                # TURN/UDP
       - "50000-50100:50000-50100/udp"  # RTC UDP
+      - "50101-50200:50101-50200/udp"  # TURN relay (see livekit.prod.yaml)
     volumes:
       - ./livekit.prod.yaml:/etc/livekit.yaml:ro
     environment:

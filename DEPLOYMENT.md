@@ -9,7 +9,7 @@ Bu rehber, PodChat uygulamasını kendi VPS'inize deploy etmenizi anlatır.
 - **RAM**: Minimum 2GB (4GB önerilen)
 - **CPU**: 2 vCPU
 - **Disk**: 20GB SSD
-- **Network**: Açık portlar: 80, 443, 7881/tcp, 50000-50100/udp
+- **Network**: Açık portlar: 80, 443, 7881/tcp, 3478/udp, 50000-50100/udp, 50101-50200/udp
 
 ### Domain Gereksinimleri
 - Bir domain (örn: `podchat.example.com`)
@@ -150,7 +150,9 @@ chmod +x deploy.sh
 | 80 | TCP | HTTP (SSL redirect) |
 | 443 | TCP | HTTPS |
 | 7881 | TCP | LiveKit RTC TCP |
+| 3478 | UDP | LiveKit TURN/UDP |
 | 50000-50100 | UDP | LiveKit RTC UDP (WebRTC) |
+| 50101-50200 | UDP | LiveKit TURN relay |
 
 ## Firewall Ayarları
 
@@ -158,7 +160,9 @@ chmod +x deploy.sh
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw allow 7881/tcp
+sudo ufw allow 3478/udp
 sudo ufw allow 50000:50100/udp
+sudo ufw allow 50101:50200/udp
 sudo ufw enable
 ```
 
