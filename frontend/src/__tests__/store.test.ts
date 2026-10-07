@@ -57,6 +57,36 @@ describe('Store Tests', () => {
       expect(state.token).toBeNull();
       expect(state.isAuthenticated).toBe(false);
     });
+
+    it('should drop the previous room password and host role on logout', () => {
+      const user = { id: 'user-1', username: 'testuser', createdAt: new Date().toISOString() };
+      const room = {
+        id: 'room-1',
+        slug: 'secret-room',
+        title: 'Private',
+        hostId: 'user-1',
+        status: 'live' as const,
+        isPublic: false,
+        hasPassword: true,
+        maxSpeakers: 10,
+        createdAt: new Date().toISOString(),
+      };
+
+      act(() => {
+        useRoomStore.getState().setCurrentRoom(room);
+        useRoomStore.getState().setCurrentRoomPassword('s3cret');
+        useRoomStore.getState().setIsHost(true);
+        useRoomStore.getState().setIsSpeaker(true);
+        useAuthStore.getState().setAuth(user, 'token');
+        useAuthStore.getState().logout();
+      });
+
+      const roomState = useRoomStore.getState();
+      expect(roomState.currentRoom).toBeNull();
+      expect(roomState.currentRoomPassword).toBeNull();
+      expect(roomState.isHost).toBe(false);
+      expect(roomState.isSpeaker).toBe(false);
+    });
   });
 
   describe('useRoomStore', () => {
