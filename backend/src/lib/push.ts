@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { prisma } from './prisma.js';
+import { blockedUserIds } from './blocks.js';
 import { logError } from './logger.js';
 
 // Configure web-push with VAPID keys
@@ -93,19 +94,34 @@ export async function notifyFollowersOfLive(
   roomTitle: string,
   roomSlug: string
 ): Promise<number> {
-  // Get all followers of this host
+  const host = await prisma.user.findUnique({
+    where: { id: hostId },
+    select: { isBanned: true },
+  });
+  if (!host || host.isBanned) return 0;
+
   const followers = await prisma.userFollow.findMany({
     where: { followingId: hostId },
     select: { followerId: true },
   });
 
-  const followerIds = followers.map((f) => f.followerId);
+  if (followers.length === 0) return 0;
 
-  if (followerIds.length === 0) {
-    return 0;
-  }
+  const blocked = new Set(await blockedUserIds(hostId));
+  const candidateIds = followers
+    .map((f) => f.followerId)
+    .filter((id) => !blocked.has(id));
 
-  return sendPushToUsers(followerIds, {
+  if (candidateIds.length === 0) return 0;
+
+  const active = await prisma.user.findMany({
+    where: { id: { in: candidateIds }, isBanned: false },
+    select: { id: true },
+  });
+
+  if (active.length === 0) return 0;
+
+  return sendPushToUsers(active.map((u) => u.id), {
     title: `${hostUsername} is live!`,
     body: roomTitle,
     icon: '/icon-192.png',
@@ -127,6 +143,18 @@ export async function notifyNewFollower(
   followerUsername: string,
   followerAvatarUrl?: string
 ): Promise<number> {
+  const [target, follower] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { isBanned: true } }),
+    prisma.user.findUnique({
+      where: { username: followerUsername },
+      select: { id: true, isBanned: true },
+    }),
+  ]);
+  if (!target || target.isBanned || !follower || follower.isBanned) return 0;
+
+  const blocked = await blockedUserIds(userId);
+  if (blocked.includes(follower.id)) return 0;
+
   return sendPushToUser(userId, {
     title: 'New follower',
     body: `${followerUsername} started following you`,
