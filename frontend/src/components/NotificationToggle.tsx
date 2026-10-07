@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import {
   isPushSupported,
   getNotificationPermission,
@@ -8,6 +8,8 @@ import {
 } from '../lib/push';
 
 export function NotificationToggle() {
+  const switchId = useId();
+  const descriptionId = useId();
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [subscribed, setSubscribed] = useState(false);
@@ -29,7 +31,7 @@ export function NotificationToggle() {
   }, []);
 
   const handleToggle = async () => {
-    if (!supported) return;
+    if (!supported || loading) return;
 
     setLoading(true);
     try {
@@ -54,51 +56,62 @@ export function NotificationToggle() {
     }
   };
 
-  if (!supported) {
-    return (
-      <div className="flex items-center justify-between p-4 bg-pod-elevated border border-pod-border rounded-lg">
-        <div>
-          <p className="font-medium text-white">Push Notifications</p>
-          <p className="text-sm text-pod-text-secondary">Not supported in this browser</p>
-        </div>
-        <div className="w-12 h-6 bg-pod-active rounded-full opacity-50" />
-      </div>
-    );
-  }
-
-  if (permission === 'denied') {
-    return (
-      <div className="flex items-center justify-between p-4 bg-pod-elevated border border-pod-border rounded-lg">
-        <div>
-          <p className="font-medium text-white">Push Notifications</p>
-          <p className="text-sm text-pod-red">Blocked - Enable in browser settings</p>
-        </div>
-        <div className="w-12 h-6 bg-pod-active rounded-full opacity-50" />
-      </div>
-    );
-  }
+  const interactive = supported && permission !== 'denied';
+  const description = !supported
+    ? 'Not supported in this browser'
+    : permission === 'denied'
+      ? 'Blocked - Enable in browser settings'
+      : subscribed
+        ? 'Receive alerts when hosts go live'
+        : 'Get notified when hosts go live';
 
   return (
-    <div className="flex items-center justify-between p-4 bg-pod-elevated border border-pod-border rounded-lg">
-      <div>
-        <p className="font-medium text-white">Push Notifications</p>
-        <p className="text-sm text-pod-text-secondary">
-          {subscribed ? 'Receive alerts when hosts go live' : 'Get notified when hosts go live'}
+    <div className="flex items-center justify-between gap-4 p-4 bg-pod-elevated border border-pod-border rounded-lg">
+      <div className="min-w-0">
+        {interactive ? (
+          <label htmlFor={switchId} className="font-medium text-white cursor-pointer">
+            Push Notifications
+          </label>
+        ) : (
+          <p className="font-medium text-white">Push Notifications</p>
+        )}
+        <p
+          id={interactive ? descriptionId : undefined}
+          className={`text-sm ${permission === 'denied' ? 'text-pod-red' : 'text-pod-text-secondary'}`}
+        >
+          {description}
         </p>
       </div>
-      <button
-        onClick={handleToggle}
-        disabled={loading}
-        className={`relative w-12 h-6 rounded-full transition-colors ${
-          subscribed ? 'bg-pod-red' : 'bg-pod-active'
-        } ${loading ? 'opacity-50' : ''}`}
-      >
-        <span
-          className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-            subscribed ? 'translate-x-6' : ''
+      {interactive ? (
+        <button
+          id={switchId}
+          type="button"
+          role="switch"
+          aria-checked={subscribed}
+          aria-describedby={descriptionId}
+          aria-busy={loading || undefined}
+          disabled={loading}
+          onClick={handleToggle}
+          className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+            loading ? 'opacity-50' : ''
           }`}
-        />
-      </button>
+        >
+          <span
+            aria-hidden="true"
+            className={`relative h-6 w-12 rounded-full transition-colors motion-reduce:transition-none ${
+              subscribed ? 'bg-pod-red' : 'bg-pod-active'
+            }`}
+          >
+            <span
+              className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white transition-transform motion-reduce:transition-none ${
+                subscribed ? 'translate-x-6' : ''
+              }`}
+            />
+          </span>
+        </button>
+      ) : (
+        <div aria-hidden="true" className="h-6 w-12 shrink-0 rounded-full bg-pod-active opacity-50" />
+      )}
     </div>
   );
 }
