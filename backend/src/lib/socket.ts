@@ -53,6 +53,44 @@ const DISCONNECT_GRACE_MS = 30_000;
 const roomPresence = new Map<string, Set<string>>(); // `${slug}::${userId}` -> socket ids
 const pendingLeaves = new Map<string, ReturnType<typeof setTimeout>>();
 
+function isSocketLifecycleEvent(packet: unknown): boolean {
+  const name = Array.isArray(packet) ? packet[0] : undefined;
+  return name === 'disconnect' || name === 'disconnecting';
+}
+
+// A ban can land while the socket is already open (JWT lasts 30 days).
+// Each client event re-checks the account and drops the socket if it is
+// suspended or gone. Disconnect events skip the lookup so cleanup can finish.
+function guardSuspendedAccount(socket: AuthenticatedSocket): void {
+  socket.use(async (packet, next) => {
+    if (isSocketLifecycleEvent(packet)) {
+      next();
+      return;
+    }
+
+    if (!socket.userId) {
+      next(new Error('Authentication required'));
+      return;
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: socket.userId },
+        select: { isBanned: true },
+      });
+      if (!user || user.isBanned) {
+        next(new Error('Account suspended'));
+        socket.disconnect(true);
+        return;
+      }
+    } catch (error) {
+      logger.error({ error, userId: socket.userId }, 'Failed to check account suspension');
+    }
+
+    next();
+  });
+}
+
 function presenceKey(roomSlug: string, userId: string): string {
   return `${roomSlug}::${userId}`;
 }
@@ -146,11 +184,15 @@ export function initializeSocket(httpServer: HttpServer): Server {
       // Verify user still exists in database
       const user = await prisma.user.findUnique({
         where: { id: decoded.userId },
-        select: { id: true, username: true },
+        select: { id: true, username: true, isBanned: true },
       });
 
       if (!user) {
         return next(new Error('User not found'));
+      }
+
+      if (user.isBanned) {
+        return next(new Error('Account suspended'));
       }
 
       socket.userId = user.id;
@@ -162,6 +204,7 @@ export function initializeSocket(httpServer: HttpServer): Server {
   });
 
   io.on('connection', (socket: AuthenticatedSocket) => {
+    guardSuspendedAccount(socket);
     logger.debug({ userId: socket.userId, username: socket.username }, 'User connected via socket');
 
     // Join a room channel
