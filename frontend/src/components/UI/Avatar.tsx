@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 interface AvatarProps {
   src?: string;
   name: string;
@@ -41,26 +43,14 @@ export function Avatar({
   const ringOpacity = isSpeaking ? Math.max(0.5, audioLevel) : 0;
   const ringScale = isSpeaking ? 1 + (audioLevel * 0.2) : 1;
 
-  const avatarContent = src ? (
-    <img
-      src={src}
-      alt={name}
-      loading="lazy"
-      className={`${sizes[size]} rounded-lg object-cover relative z-10`}
-      onError={(e) => {
-        (e.target as HTMLImageElement).style.display = 'none';
-        (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-      }}
-    />
-  ) : null;
+  // A failed image must stay failed across parent re-renders. Hiding the
+  // <img> with DOM style and unhiding initials with classList is undone the
+  // next time React reconciles (listen timeupdate, new chat message), which
+  // left an empty tile.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const showImage = Boolean(src) && failedSrc !== src;
 
-  const initialsContent = (
-    <div
-      className={`${sizes[size]} bg-pod-elevated rounded-lg flex items-center justify-center font-bold text-white relative z-10 border border-pod-border ${src ? 'hidden' : ''}`}
-    >
-      {initials}
-    </div>
-  );
+  const tileClass = `${sizes[size]} rounded-lg relative z-10`;
 
   return (
     <div className={`relative inline-flex items-center justify-center ${className}`}>
@@ -81,8 +71,22 @@ export function Avatar({
         </>
       )}
 
-      {avatarContent}
-      {initialsContent}
+      {showImage ? (
+        <img
+          src={src}
+          alt={name}
+          loading="lazy"
+          className={`${tileClass} object-cover`}
+          onError={() => setFailedSrc(src ?? null)}
+        />
+      ) : (
+        <div
+          className={`${tileClass} bg-pod-elevated flex items-center justify-center font-bold text-white border border-pod-border`}
+          title={name}
+        >
+          {initials || '?'}
+        </div>
+      )}
 
       {showAudioLevel && isSpeaking && (
         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
