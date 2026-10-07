@@ -74,8 +74,30 @@ jobs:
       - run: npm run test:run
       - run: npm run build
 
+  # The SwiftUI app lives outside this repo (../PodChat). Skip the macOS
+  # runner unless that Xcode project is actually checked out here.
+  ios-project:
+    name: iOS project check
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.xcode.outputs.present }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Xcode project
+        id: xcode
+        run: |
+          if [ -f PodChat/PodChat.xcodeproj/project.pbxproj ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "PodChat Xcode project is not in this repo (see ../PodChat). Skipping the iOS build."
+          fi
+
   ios:
     name: iOS (build + test)
+    needs: ios-project
+    if: needs.ios-project.outputs.present == 'true'
     runs-on: macos-15
 
     steps:

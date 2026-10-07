@@ -86,7 +86,7 @@ GitHub Actions `.github/workflows/ci.yml` her PR'da:
 
 - Backend: lint + typecheck + Vitest (Postgres servisli)
 - Frontend: lint + typecheck + Vitest + production build
-- iOS: `xcodebuild test` (iPhone 16 simulator)
+- iOS: `xcodebuild test` (iPhone simulator), yalnız `PodChat/PodChat.xcodeproj` checkout içindeyse. Xcode projesi `../PodChat` altında olduğu için web deposunda bu iş atlanır.
 
 ## Deploy
 
