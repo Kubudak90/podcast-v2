@@ -1,8 +1,37 @@
+import { timingSafeEqual } from 'crypto';
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { getVapidPublicKey } from '../lib/push.js';
 import { logError } from '../lib/logger.js';
+
+const MAX_ENDPOINT_LENGTH = 2048;
+const MAX_P256DH_LENGTH = 200;
+const MAX_AUTH_LENGTH = 100;
+
+function isHttpsEndpoint(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_ENDPOINT_LENGTH) {
+    return false;
+  }
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isPushKey(value: unknown, maxLength: number): value is string {
+  return (
+    typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/\s/.test(value)
+  );
+}
+
+function secretEquals(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 const router = Router();
 
@@ -23,11 +52,31 @@ router.post('/subscribe', async (req: AuthRequest, res: Response) => {
   try {
     const { endpoint, keys } = req.body;
 
-    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    if (
+      !isHttpsEndpoint(endpoint) ||
+      !isPushKey(keys?.p256dh, MAX_P256DH_LENGTH) ||
+      !isPushKey(keys?.auth, MAX_AUTH_LENGTH)
+    ) {
       return res.status(400).json({ message: 'Invalid subscription data' });
     }
 
-    // Upsert subscription (update if endpoint exists, create if not)
+    const existing = await prisma.notificationSubscription.findUnique({
+      where: { endpoint },
+    });
+
+    // Endpoint URLs show up in the owner's subscription list. Keys do not.
+    // A different account may take the device only when it presents the same
+    // keys the browser already stored — otherwise this would be a takeover.
+    if (
+      existing &&
+      existing.userId !== req.userId &&
+      (!secretEquals(existing.p256dh, keys.p256dh) || !secretEquals(existing.auth, keys.auth))
+    ) {
+      return res
+        .status(409)
+        .json({ message: 'This device is already registered to another account' });
+    }
+
     await prisma.notificationSubscription.upsert({
       where: { endpoint },
       update: {
