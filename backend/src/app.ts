@@ -15,6 +15,49 @@ import legalRoutes from './routes/legal.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { logError } from './lib/logger.js';
 
+type BodyParserError = {
+  type?: unknown;
+  status?: unknown;
+  statusCode?: unknown;
+};
+
+export function clientBodyError(err: unknown): { status: number; message: string } | null {
+  if (!err || typeof err !== 'object') return null;
+  const error = err as BodyParserError;
+  const type = typeof error.type === 'string' ? error.type : '';
+  if (type === 'entity.parse.failed') {
+    return { status: 400, message: 'Invalid JSON' };
+  }
+  const status = typeof error.status === 'number' ? error.status : error.statusCode;
+  if (type === 'entity.too.large' || status === 413) {
+    return { status: 413, message: 'Request body too large' };
+  }
+  return null;
+}
+
+export function apiErrorHandler(
+  err: unknown,
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
+  const clientError = clientBodyError(err);
+  const error = err instanceof Error ? err : new Error('Unknown error');
+  logError(error, { path: req.path, method: req.method });
+
+  if (clientError) {
+    res.status(clientError.status).json({ message: clientError.message });
+    return;
+  }
+
+  res.status(500).json({ message: 'Internal server error' });
+}
+
 export function createApp() {
   const app = express();
 
@@ -32,17 +75,20 @@ export function createApp() {
       crossOriginResourcePolicy: { policy: 'cross-origin' },
       // HSTS only meaningful over HTTPS — let proxy/CDN normally inject it,
       // but enable here for direct deploys.
-      hsts: process.env.NODE_ENV === 'production'
-        ? { maxAge: 15552000, includeSubDomains: true, preload: false }
-        : false,
-    })
+      hsts:
+        process.env.NODE_ENV === 'production'
+          ? { maxAge: 15552000, includeSubDomains: true, preload: false }
+          : false,
+    }),
   );
 
   // Middleware
-  app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      credentials: true,
+    }),
+  );
   app.use(express.json({ limit: '1mb' }));
   app.disable('x-powered-by');
 
@@ -72,11 +118,7 @@ export function createApp() {
   app.use('/api/blocks', blocksRoutes);
   app.use('/api/admin', adminRoutes);
 
-  // Error handler
-  app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    logError(err, { path: req.path, method: req.method });
-    res.status(500).json({ message: 'Internal server error' });
-  });
+  app.use(apiErrorHandler);
 
   return app;
 }
