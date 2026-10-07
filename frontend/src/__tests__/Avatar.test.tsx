@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Avatar } from '../components/UI/Avatar';
 
 describe('Avatar Component', () => {
@@ -34,12 +34,45 @@ describe('Avatar Component', () => {
       expect(img).toHaveAttribute('alt', 'John');
     });
 
-    it('should hide initials when image is provided', () => {
+    it('should not show initials while the image is shown', () => {
       render(<Avatar name="John Doe" src="https://example.com/avatar.png" />);
-      const initials = screen.queryByText('JD');
-      // Initials exist as hidden fallback for failed image loads
+      expect(screen.queryByText('JD')).not.toBeInTheDocument();
+      expect(screen.getByRole('img', { name: 'John Doe' })).toBeInTheDocument();
+    });
+
+    it('keeps initials after the image fails and the parent re-renders', () => {
+      const { rerender } = render(
+        <Avatar name="John Doe" src="https://example.com/missing.png" />
+      );
+
+      fireEvent.error(screen.getByRole('img', { name: 'John Doe' }));
+
+      expect(screen.queryByRole('img')).not.toBeInTheDocument();
+      const initials = screen.getByText('JD');
       expect(initials).toBeInTheDocument();
-      expect(initials?.closest('.hidden')).toBeInTheDocument();
+      expect(initials).not.toHaveClass('hidden');
+
+      rerender(<Avatar name="John Doe" src="https://example.com/missing.png" />);
+
+      expect(screen.queryByRole('img')).not.toBeInTheDocument();
+      expect(screen.getByText('JD')).toBeInTheDocument();
+    });
+
+    it('tries again when a different image is provided', () => {
+      const { rerender } = render(
+        <Avatar name="John Doe" src="https://example.com/missing.png" />
+      );
+
+      fireEvent.error(screen.getByRole('img', { name: 'John Doe' }));
+      expect(screen.getByText('JD')).toBeInTheDocument();
+
+      rerender(<Avatar name="John Doe" src="https://example.com/other.png" />);
+
+      expect(screen.getByRole('img', { name: 'John Doe' })).toHaveAttribute(
+        'src',
+        'https://example.com/other.png'
+      );
+      expect(screen.queryByText('JD')).not.toBeInTheDocument();
     });
   });
 
