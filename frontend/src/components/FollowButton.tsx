@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
 interface FollowButtonProps {
@@ -8,9 +8,34 @@ interface FollowButtonProps {
   size?: 'sm' | 'md';
 }
 
-export function FollowButton({ userId, isFollowing: initialFollowing, onFollowChange, size = 'md' }: FollowButtonProps) {
-  const [isFollowing, setIsFollowing] = useState(initialFollowing);
+function hoverQuery(): MediaQueryList | null {
+  if (typeof window.matchMedia !== 'function') return null;
+  return window.matchMedia('(hover: hover)');
+}
+
+export function FollowButton({
+  userId,
+  isFollowing: followingProp,
+  onFollowChange,
+  size = 'md',
+}: FollowButtonProps) {
+  const [isFollowing, setIsFollowing] = useState(followingProp);
   const [loading, setLoading] = useState(false);
+  const [hoverCapable, setHoverCapable] = useState(() => hoverQuery()?.matches ?? true);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    setIsFollowing(followingProp);
+  }, [followingProp, userId]);
+
+  useEffect(() => {
+    const query = hoverQuery();
+    if (!query) return;
+    const update = () => setHoverCapable(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
 
   const handleClick = async () => {
     setLoading(true);
@@ -32,27 +57,28 @@ export function FollowButton({ userId, isFollowing: initialFollowing, onFollowCh
   };
 
   const sizeClasses = size === 'sm' ? 'px-3 py-1 text-sm' : 'px-4 py-2';
-
-  if (isFollowing) {
-    return (
-      <button
-        onClick={handleClick}
-        disabled={loading}
-        className={`${sizeClasses} bg-pod-active border border-pod-border hover:bg-pod-red hover:border-pod-red text-white rounded-lg transition-colors disabled:opacity-50 group`}
-      >
-        <span className="group-hover:hidden">{loading ? '...' : 'Following'}</span>
-        <span className="hidden group-hover:inline">Unfollow</span>
-      </button>
-    );
-  }
+  const showUnfollow = isFollowing && (!hoverCapable || revealed);
+  const label = loading ? '...' : showUnfollow ? 'Unfollow' : isFollowing ? 'Following' : 'Follow';
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       disabled={loading}
-      className={`${sizeClasses} bg-pod-red hover:bg-red-600 text-white rounded-lg transition-colors disabled:opacity-50`}
+      aria-pressed={isFollowing}
+      aria-busy={loading || undefined}
+      aria-label={isFollowing ? 'Unfollow' : 'Follow'}
+      onMouseEnter={() => setRevealed(true)}
+      onMouseLeave={() => setRevealed(false)}
+      onFocus={() => setRevealed(true)}
+      onBlur={() => setRevealed(false)}
+      className={`${sizeClasses} min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+        showUnfollow || !isFollowing
+          ? 'bg-pod-red text-white border border-pod-red hover:bg-red-600'
+          : 'bg-pod-active border border-pod-border text-white'
+      }`}
     >
-      {loading ? '...' : 'Follow'}
+      {label}
     </button>
   );
 }
