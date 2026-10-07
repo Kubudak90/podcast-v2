@@ -1,4 +1,5 @@
 import { AccessToken, EgressClient, EncodedFileOutput, EncodedFileType, RoomServiceClient, S3Upload } from 'livekit-server-sdk';
+import { prisma } from './prisma.js';
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
@@ -151,11 +152,71 @@ export async function removeRoomParticipant(roomName: string, identity: string):
   await getRoomServiceClient().removeParticipant(roomName, identity);
 }
 
+// ParticipantInfo.Kind from @livekit/protocol. People in the room are standard
+// clients and SIP callers. Recorders, ingress, agents, connectors, and bridges
+// are not listeners even when they subscribe with canPublish false.
+const PERSON_PARTICIPANT_KINDS = new Set<number>([0, 3]);
+
+export type ListenerCandidate = {
+  identity: string;
+  kind?: number;
+  permission?: {
+    canPublish?: boolean;
+    hidden?: boolean;
+    recorder?: boolean;
+    agent?: boolean;
+  } | null;
+};
+
+// Host-muted speakers also have canPublish false. They stay on the mic row, so
+// the listener total must not count them. speakerIdentities are active host and
+// speaker usernames (LiveKit identity is the username).
+export function isDisplayedListener(
+  participant: ListenerCandidate,
+  speakerIdentities: ReadonlySet<string>
+): boolean {
+  if (!participant.identity) return false;
+  if (participant.permission?.canPublish !== false) return false;
+  if (
+    participant.permission?.hidden ||
+    participant.permission?.recorder ||
+    participant.permission?.agent
+  ) {
+    return false;
+  }
+  if (participant.kind !== undefined && !PERSON_PARTICIPANT_KINDS.has(participant.kind)) {
+    return false;
+  }
+  if (speakerIdentities.has(participant.identity)) return false;
+  return true;
+}
+
+async function activeSpeakerIdentities(roomSlug: string): Promise<Set<string>> {
+  const room = await prisma.room.findUnique({
+    where: { slug: roomSlug },
+    select: {
+      participants: {
+        where: { leftAt: null, role: { in: ['host', 'speaker'] } },
+        select: { user: { select: { username: true } } },
+      },
+    },
+  });
+
+  const names = new Set<string>();
+  for (const row of room?.participants ?? []) {
+    if (row.user.username) names.add(row.user.username);
+  }
+  return names;
+}
+
 export async function listRoomListeners(
   roomName: string
 ): Promise<{ count: number; sampleIdentities: string[] }> {
-  const participants = await getRoomServiceClient().listParticipants(roomName);
-  const listeners = participants.filter((p) => p.permission?.canPublish === false);
+  const [participants, speakerIdentities] = await Promise.all([
+    getRoomServiceClient().listParticipants(roomName),
+    activeSpeakerIdentities(roomName),
+  ]);
+  const listeners = participants.filter((p) => isDisplayedListener(p, speakerIdentities));
   return {
     count: listeners.length,
     sampleIdentities: listeners.slice(0, 8).map((p) => p.identity),
