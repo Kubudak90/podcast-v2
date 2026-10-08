@@ -276,9 +276,11 @@ router.get('/:id/cover', async (req: Request<{ id: string }>, res: Response) => 
   try {
     const recording = await prisma.recording.findUnique({
       where: { id: req.params.id },
-      select: { coverImageKey: true },
+      select: { coverImageKey: true, isHidden: true },
     });
-    if (!recording?.coverImageKey) {
+    // Moderation hide must take the image down too. Drafts stay reachable by id:
+    // the <img> request cannot send the session token.
+    if (!recording?.coverImageKey || recording.isHidden) {
       return res.status(404).json({ message: 'No cover image' });
     }
 
