@@ -5,6 +5,9 @@
 # api_key: from LIVEKIT_API_KEY env
 # api_secret: from LIVEKIT_API_SECRET env
 ws_url: ws://livekit:7880
+# Room recordings open this socket from Chrome inside the egress container.
+# ws:// is refused unless insecure is set, so the recording never joins the room.
+insecure: true
 
 redis:
   address: redis:6379
