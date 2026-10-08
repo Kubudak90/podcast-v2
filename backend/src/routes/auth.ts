@@ -23,17 +23,20 @@ function formatUser(user: { id: string; username: string; email: string | null; 
   };
 }
 
+import { emailEquals, findUserByEmail, normalizeEmail } from '../lib/emailAddress.js';
+
 // POST /api/auth/register (email + password)
 router.post('/register', authLimiter, validate(registerSchema), async (req: Request, res: Response) => {
   try {
     const { username, email, password } = req.body;
+    const canonicalEmail = normalizeEmail(email);
 
     const existingUsername = await prisma.user.findUnique({ where: { username } });
     if (existingUsername) {
       return res.status(400).json({ message: 'Username already taken' });
     }
 
-    const existingEmail = await prisma.user.findUnique({ where: { email } });
+    const existingEmail = await findUserByEmail(canonicalEmail);
     if (existingEmail) {
       return res.status(400).json({ message: 'Email already in use' });
     }
@@ -43,7 +46,7 @@ router.post('/register', authLimiter, validate(registerSchema), async (req: Requ
     const user = await prisma.user.create({
       data: {
         username,
-        email,
+        email: canonicalEmail,
         password: hashedPassword,
         authProvider: 'email',
       },
@@ -64,7 +67,7 @@ router.post('/login', authLimiter, validate(loginSchema), async (req: Request, r
   try {
     const { email, password } = req.body;
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await findUserByEmail(email);
     if (!user || !user.password) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
@@ -108,7 +111,7 @@ router.post('/google', authLimiter, validate(oauthSchema), async (req: Request, 
       where: {
         OR: [
           { authProvider: 'google', authProviderId: googleId },
-          { email },
+          { email: emailEquals(email) },
         ],
       },
     });
@@ -135,7 +138,7 @@ router.post('/google', authLimiter, validate(oauthSchema), async (req: Request, 
       user = await prisma.user.create({
         data: {
           username,
-          email,
+          email: normalizeEmail(email),
           authProvider: 'google',
           authProviderId: googleId,
           avatarUrl: picture || null,
@@ -175,7 +178,7 @@ router.post('/apple', authLimiter, validate(oauthSchema), async (req: Request, r
       where: {
         OR: [
           { authProvider: 'apple', authProviderId: appleId },
-          ...(email ? [{ email }] : []),
+          ...(email ? [{ email: emailEquals(email) }] : []),
         ],
       },
     });
@@ -201,7 +204,7 @@ router.post('/apple', authLimiter, validate(oauthSchema), async (req: Request, r
       user = await prisma.user.create({
         data: {
           username,
-          email: email || null,
+          email: email ? normalizeEmail(email) : null,
           authProvider: 'apple',
           authProviderId: appleId,
         },
@@ -289,6 +292,7 @@ router.get('/rooms', authMiddleware, async (req: AuthRequest, res: Response) => 
 router.patch('/profile', authMiddleware, validate(updateProfileSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { username, email, bio, avatarUrl } = req.body;
+    const canonicalEmail = typeof email === 'string' ? normalizeEmail(email) : email;
 
     if (username) {
       const existingUser = await prisma.user.findFirst({
@@ -303,22 +307,16 @@ router.patch('/profile', authMiddleware, validate(updateProfileSchema), async (r
       }
     }
 
-    if (email) {
-      const existingEmail = await prisma.user.findFirst({
-        where: {
-          email,
-          NOT: { id: req.userId },
-        },
-      });
-
-      if (existingEmail) {
+    if (typeof canonicalEmail === 'string' && canonicalEmail) {
+      const existingEmail = await findUserByEmail(canonicalEmail);
+      if (existingEmail && existingEmail.id !== req.userId) {
         return res.status(400).json({ message: 'Email already in use' });
       }
     }
 
     const updateData: Record<string, string | null> = {};
     if (username !== undefined) updateData.username = username;
-    if (email !== undefined) updateData.email = email;
+    if (email !== undefined) updateData.email = canonicalEmail;
     if (bio !== undefined) updateData.bio = bio;
     if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
 
