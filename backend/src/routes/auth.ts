@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import * as jose from 'jose';
+import { readAppleIdentity, readGoogleUserInfo } from '../lib/oauthIdentity.js';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, generateToken, AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -97,12 +98,13 @@ router.post('/google', authLimiter, validate(oauthSchema), async (req: Request, 
       return res.status(400).json({ message: 'Invalid Google token' });
     }
 
-    const payload = await userInfoRes.json() as { sub?: string; email?: string; name?: string; picture?: string };
-    if (!payload.sub || !payload.email) {
-      return res.status(400).json({ message: 'Invalid Google token' });
+    const identity = readGoogleUserInfo(await userInfoRes.json());
+    if (!identity.ok) {
+      const message = identity.reason === 'unverified' ? 'Google email is not verified' : 'Invalid Google token';
+      return res.status(400).json({ message });
     }
 
-    const { sub: googleId, email, name, picture } = payload;
+    const { sub: googleId, email, name, picture } = identity.profile;
 
     let user = await prisma.user.findFirst({
       where: {
@@ -112,6 +114,10 @@ router.post('/google', authLimiter, validate(oauthSchema), async (req: Request, 
         ],
       },
     });
+
+    if (user?.isBanned) {
+      return res.status(403).json({ message: 'Account suspended' });
+    }
 
     if (user) {
       if (user.authProvider !== 'google') {
@@ -164,12 +170,14 @@ router.post('/apple', authLimiter, validate(oauthSchema), async (req: Request, r
       audience: APPLE_CLIENT_ID,
     });
 
-    const appleId = payload.sub;
-    const email = payload.email as string | undefined;
-
-    if (!appleId) {
-      return res.status(400).json({ message: 'Invalid Apple token' });
+    const identity = readAppleIdentity(payload);
+    if (!identity.ok) {
+      const message = identity.reason === 'unverified' ? 'Apple email is not verified' : 'Invalid Apple token';
+      return res.status(400).json({ message });
     }
+
+    const appleId = identity.profile.sub;
+    const email = identity.profile.email;
 
     let user = await prisma.user.findFirst({
       where: {
@@ -179,6 +187,10 @@ router.post('/apple', authLimiter, validate(oauthSchema), async (req: Request, r
         ],
       },
     });
+
+    if (user?.isBanned) {
+      return res.status(403).json({ message: 'Account suspended' });
+    }
 
     if (user) {
       if (user.authProvider !== 'apple') {
