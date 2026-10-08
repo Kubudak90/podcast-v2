@@ -29,31 +29,10 @@ self.addEventListener('push', (event) => {
   }
 });
 
+import { openNotificationTarget } from './lib/notificationNav';
+
 // Handle notification click
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  const data = event.notification.data;
-  let url = '/';
-
-  if (data?.type === 'room_live' && data?.roomSlug) {
-    url = `/room/${data.roomSlug}`;
-  } else if (data?.type === 'new_follower') {
-    url = '/profile';
-  }
-
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // Focus existing window if any
-      for (const client of clients) {
-        if (client.url.includes(self.registration.scope) && 'focus' in client) {
-          client.focus();
-          client.navigate(url);
-          return;
-        }
-      }
-      // Otherwise open new window
-      return self.clients.openWindow(url);
-    })
-  );
+  event.waitUntil(openNotificationTarget(event.notification.data, self.clients, self.registration.scope));
 });
