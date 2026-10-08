@@ -12,6 +12,7 @@ import { emitParticipantJoined, emitParticipantLeft, emitRoomStatusChanged, emit
 import { logRecording, logError } from '../lib/logger.js';
 import { notifyFollowersOfLive } from '../lib/push.js';
 import { blockedUserIds } from '../lib/blocks.js';
+import { egressRecordingFields } from '../lib/recordingMeta.js';
 
 const router = Router();
 
@@ -487,20 +488,15 @@ router.post('/:slug/end', async (req: AuthRequest<{ slug: string }>, res: Respon
         await stopRoomRecording(room.egressId);
         logRecording('stop', room.slug, room.egressId);
 
-        // Calculate duration
-        const durationSeconds = room.startedAt
-          ? Math.floor((Date.now() - room.startedAt.getTime()) / 1000)
-          : null;
-
-        // Use the S3 URL stored at recording start time
+        // Use the file written at recording start (audio-only MP3).
         if (room.recordingFileUrl) {
+          const meta = egressRecordingFields(room.recordingFileUrl, room.startedAt);
           recordingData = {
             roomId: room.id,
             ownerId: room.hostId,
             fileUrl: room.recordingFileUrl,
-            durationSeconds,
-            // Room composite egress writes an MP4 container (see startRoomRecording).
-            format: 'mp4',
+            durationSeconds: meta.durationSeconds,
+            format: meta.format,
           };
         }
       } catch (egressError) {
