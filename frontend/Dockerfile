@@ -17,7 +17,8 @@ ARG VITE_LIVEKIT_URL
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_LIVEKIT_URL=$VITE_LIVEKIT_URL
 
-RUN npm run build
+# Empty VITE_API_URL is baked in as "" and the client calls the visitor's localhost.
+RUN sh ./docker-build-env.sh && npm run build
 
 # Production stage - Nginx
 FROM nginx:alpine AS production
