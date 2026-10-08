@@ -22,6 +22,7 @@ import { authMiddleware, banGuard, AuthRequest, optionalAuthMiddleware } from '.
 import { validate } from '../middleware/validate.js';
 import { recordingUpdateSchema } from '../lib/validation.js';
 import { blockedUserIds } from '../lib/blocks.js';
+import { podcastDurationSeconds, podcastTitleFromUpload } from '../lib/podcastUpload.js';
 import { logError } from '../lib/logger.js';
 
 const router = Router();
@@ -93,6 +94,7 @@ async function buildRecordingAccessUrl(
 
 // POST /api/recordings/upload - create a podcast from an uploaded audio file (owner only)
 router.post('/upload', authMiddleware, banGuard, audioUploadMiddleware, async (req: AuthRequest, res: Response) => {
+  let storedUrl: string | undefined;
   try {
     const file = req.file;
     if (!file) {
@@ -106,24 +108,21 @@ router.post('/upload', authMiddleware, banGuard, audioUploadMiddleware, async (r
 
     const key = `uploads/${path.basename(file.path)}`;
     const fileUrl = await storeUploadedAudio(file.path, key, file.mimetype);
-
-    const titleRaw = typeof req.body.title === 'string' ? req.body.title.trim() : '';
-    const fallbackTitle = file.originalname.replace(/\.[^/.]+$/, '') || 'Adsız podcast';
-    const durationRaw = Number(req.body.durationSeconds);
-    const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0 ? Math.floor(durationRaw) : null;
+    storedUrl = fileUrl;
 
     const recording = await prisma.recording.create({
       data: {
         roomId: null,
         ownerId: req.userId!,
         fileUrl,
-        title: titleRaw || fallbackTitle,
-        durationSeconds,
+        title: podcastTitleFromUpload(req.body.title, file.originalname),
+        durationSeconds: podcastDurationSeconds(req.body.durationSeconds),
         fileSizeBytes: BigInt(file.size),
         format: ext,
         isPublic: false,
       },
     });
+    storedUrl = undefined;
 
     res.status(201).json({
       id: recording.id,
@@ -136,6 +135,9 @@ router.post('/upload', authMiddleware, banGuard, audioUploadMiddleware, async (r
       createdAt: recording.createdAt.toISOString(),
     });
   } catch (error) {
+    if (storedUrl) {
+      await deleteStoredFile(storedUrl).catch(() => {});
+    }
     logError(error as Error, { action: 'upload_audio_recording' });
     res.status(500).json({ message: 'Internal server error' });
   }
