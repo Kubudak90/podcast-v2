@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { authMiddleware, generateToken, AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, generateToken, optionalAuthMiddleware, AuthRequest } from '../middleware/auth.js';
 
 // Mock response object
 const createMockResponse = () => {
@@ -91,6 +91,101 @@ describe('Auth Middleware', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
+    it('should reject a recording access token signed with the same secret', () => {
+      const token = jwt.sign(
+        { recordingId: 'rec-1', disposition: 'inline' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { algorithm: 'HS256', expiresIn: '1h' }
+      );
+      const req = {
+        headers: { authorization: `Bearer ${token}` },
+      } as AuthRequest;
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Unauthorized: Invalid token',
+      });
+      expect(req.userId).toBeUndefined();
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('should reject a token whose user id is not a string', () => {
+      const token = jwt.sign(
+        { userId: 123, username: 'testuser' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { algorithm: 'HS256', expiresIn: '1h' }
+      );
+      const req = {
+        headers: { authorization: `Bearer ${token}` },
+      } as AuthRequest;
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('should reject a non-session purpose even when user claims are present', () => {
+      const token = jwt.sign(
+        { purpose: 'reset', userId: 'user-123', username: 'testuser' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { algorithm: 'HS256', expiresIn: '1h' }
+      );
+      const req = {
+        headers: { authorization: `Bearer ${token}` },
+      } as AuthRequest;
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('should reject an unsigned token', () => {
+      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+      const body = Buffer.from(JSON.stringify({ userId: 'user-123', username: 'testuser' })).toString('base64url');
+      const req = {
+        headers: { authorization: `Bearer ${header}.${body}.` },
+      } as AuthRequest;
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Unauthorized: Invalid token',
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('should accept a legacy session token that has no purpose claim', () => {
+      const token = jwt.sign(
+        { userId: 'user-123', username: 'testuser' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { algorithm: 'HS256', expiresIn: '1h' }
+      );
+      const req = {
+        headers: { authorization: `Bearer ${token}` },
+      } as AuthRequest;
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      authMiddleware(req, res, next);
+
+      expect(req.userId).toBe('user-123');
+      expect(req.user).toEqual({ id: 'user-123', username: 'testuser' });
+      expect(next).toHaveBeenCalled();
+    });
+
     it('should reject expired token', () => {
       // Create a token that expires immediately
       const expiredToken = jwt.sign(
@@ -149,6 +244,19 @@ describe('Auth Middleware', () => {
       expect(decoded.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
     });
 
+    it('should sign session tokens as HS256 with a session purpose', () => {
+      const token = generateToken('user-123', 'testuser');
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET || 'your-secret-key',
+        { algorithms: ['HS256'] }
+      ) as { purpose: string; userId: string; username: string };
+
+      expect(decoded.purpose).toBe('session');
+      expect(decoded.userId).toBe('user-123');
+      expect(decoded.username).toBe('testuser');
+    });
+
     it('should generate unique tokens for same user', () => {
       const token1 = generateToken('user-123', 'testuser');
       // Small delay to ensure different iat
@@ -159,6 +267,42 @@ describe('Auth Middleware', () => {
       const decoded2 = jwt.decode(token2) as { userId: string };
 
       expect(decoded1.userId).toBe(decoded2.userId);
+    });
+  });
+
+  describe('optionalAuthMiddleware', () => {
+    it('should continue without a user when the bearer token is a recording token', () => {
+      const token = jwt.sign(
+        { recordingId: 'rec-1', disposition: 'attachment' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { algorithm: 'HS256', expiresIn: '1h' }
+      );
+      const req = {
+        headers: { authorization: `Bearer ${token}` },
+      } as AuthRequest;
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      optionalAuthMiddleware(req, res, next);
+
+      expect(req.userId).toBeUndefined();
+      expect(req.user).toBeUndefined();
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('should attach the session when the bearer token is a session token', () => {
+      const token = generateToken('user-123', 'testuser');
+      const req = {
+        headers: { authorization: `Bearer ${token}` },
+      } as AuthRequest;
+      const next = createMockNext();
+
+      optionalAuthMiddleware(req, createMockResponse(), next);
+
+      expect(req.userId).toBe('user-123');
+      expect(req.user).toEqual({ id: 'user-123', username: 'testuser' });
+      expect(next).toHaveBeenCalled();
     });
   });
 });

@@ -12,6 +12,37 @@ function getJwtSecret(): string {
 }
 
 const JWT_SECRET = getJwtSecret();
+const SESSION_PURPOSE = 'session';
+
+type SessionClaims = { userId: string; username: string };
+
+function bearerToken(header: string | string[] | undefined): string | null {
+  const raw = Array.isArray(header) ? header[0] : header;
+  if (typeof raw !== 'string') return null;
+  const match = /^Bearer\s+(\S+)$/.exec(raw.trim());
+  return match?.[1] ?? null;
+}
+
+// File-access JWTs share this secret. They must not satisfy a session check.
+function readSessionClaims(payload: unknown): SessionClaims | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const claims = payload as Record<string, unknown>;
+  const { userId, username, purpose, recordingId } = claims;
+  if (typeof userId !== 'string' || userId.length === 0 || userId.length > 128) return null;
+  if (typeof username !== 'string' || username.length === 0 || username.length > 50) return null;
+  if (recordingId !== undefined) return null;
+  if (purpose !== undefined && purpose !== SESSION_PURPOSE) return null;
+  return { userId, username };
+}
+
+function verifySessionToken(token: string): SessionClaims | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    return readSessionClaims(decoded);
+  } catch {
+    return null;
+  }
+}
 
 // `any` here intentionally — it lets route handlers `const { foo } = req.body`
 // without per-route generics; zod middleware enforces shape at runtime.
@@ -31,22 +62,20 @@ export interface AuthRequest<
 }
 
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+  const token = bearerToken(req.headers.authorization);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return res.status(401).json({ message: 'Unauthorized: No token provided' });
   }
 
-  const token = authHeader.split(' ')[1];
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
-    req.userId = decoded.userId;
-    req.user = { id: decoded.userId, username: decoded.username };
-    next();
-  } catch {
+  const session = verifySessionToken(token);
+  if (!session) {
     return res.status(401).json({ message: 'Unauthorized: Invalid token' });
   }
+
+  req.userId = session.userId;
+  req.user = { id: session.userId, username: session.username };
+  next();
 }
 
 export async function banGuard(req: AuthRequest, res: Response, next: NextFunction) {
@@ -64,24 +93,21 @@ export async function adminGuard(req: AuthRequest, res: Response, next: NextFunc
 }
 
 export function generateToken(userId: string, username: string): string {
-  return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '30d' });
+  return jwt.sign(
+    { purpose: SESSION_PURPOSE, userId, username },
+    JWT_SECRET,
+    { algorithm: 'HS256', expiresIn: '30d' }
+  );
 }
 
 export function optionalAuthMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+  const token = bearerToken(req.headers.authorization);
+  if (!token) return next();
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next();
-  }
-
-  const token = authHeader.split(' ')[1];
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
-    req.userId = decoded.userId;
-    req.user = { id: decoded.userId, username: decoded.username };
-  } catch {
-    // Invalid token, but continue without auth
+  const session = verifySessionToken(token);
+  if (session) {
+    req.userId = session.userId;
+    req.user = { id: session.userId, username: session.username };
   }
 
   next();
