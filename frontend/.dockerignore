@@ -1,0 +1,18 @@
+# COPY . . runs after npm install. A host node_modules in the build context
+# replaces the Alpine esbuild binary and the image build fails.
+node_modules
+**/node_modules
+
+dist
+coverage
+*.tsbuildinfo
+
+# Local secrets must not be sent to the Docker daemon.
+.env
+.env.*
+**/.env
+**/.env.*
+
+npm-debug.log*
+*.log
+.DS_Store
