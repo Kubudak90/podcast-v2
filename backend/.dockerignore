@@ -1,0 +1,18 @@
+# COPY . . runs after npm ci and prisma generate. A host node_modules in the
+# build context replaces those Alpine binaries, including the Prisma engine.
+node_modules
+**/node_modules
+
+dist
+coverage
+*.tsbuildinfo
+
+# Local secrets must not be sent to the Docker daemon.
+.env
+.env.*
+**/.env
+**/.env.*
+
+npm-debug.log*
+*.log
+.DS_Store
